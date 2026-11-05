@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Shared">
+      <UniqueIdentifier>{71916d4a-71fa-4498-830f-74aaf9f9f321}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="f_game.cpp">
@@ -20,7 +23,17 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Assets.h"><Filter>헤더 파일</Filter></ClInclude>
-    <GameResource Include="resources\**\*"><Filter>리소스 파일</Filter></GameResource>
+    <ClInclude Include="Assets.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <GameResource Include="resources\**\*">
+      <Filter>리소스 파일</Filter>
+    </GameResource>
+    <ClInclude Include="Shared\GameState.h">
+      <Filter>Shared</Filter>
+    </ClInclude>
+    <ClInclude Include="Shared\InputCommand.h">
+      <Filter>Shared</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
