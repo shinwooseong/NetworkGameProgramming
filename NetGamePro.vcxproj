@@ -131,10 +131,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Client\Input.cpp" />
     <ClCompile Include="f_game.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Assets.h" />
+    <ClInclude Include="Client\Input.h" />
     <ClInclude Include="Shared\GameState.h" />
     <ClInclude Include="Shared\InputCommand.h" />
     <GameResource Include="resources\**\*" />
