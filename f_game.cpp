@@ -7,6 +7,9 @@
 #include <windowsx.h>	// AlphaBlend() 함수 이용
 #include <mmsystem.h>	
 
+#include "Client/Input.h"
+
+
 #pragma comment(lib, "msimg32.lib")
 #pragma comment(lib, "winmm.lib")
 
@@ -850,7 +853,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 	static HBITMAP hBitmap;
 
-	static bool keyUp = false, keyDown = false, keyLeft = false, keyRight = false; // 방향키 입력변수
+	static Input input;
+
 
 	static bool bGameStart; // 게임시작을 위한 변수 => START BOX 누를시 시작
 	static RECT startBox; // START BOX 
@@ -1374,6 +1378,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		RECT click = { startBox.left, startBox.top,  startBox.right, startBox.bottom };
 		if (PtInRect(&click, mouse)) // 게임시작 전 화면에서 클릭 !!
 		{
+			input.Reset();
 			bGameStart = true;
 
 			PlaySound(NULL, NULL, 0);
@@ -1393,6 +1398,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			if (wParam == VK_RETURN)  // Enter 눌렀을 때 재시작
 			{
 				// 1) 상태 플래그 리셋
+				input.Reset();
 				bGameOver = false;
 				bGameStart = true;
 				bGamePause = false;
@@ -1482,20 +1488,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			break;
 		}
 
+		if (bGameStart && !bGamePause && !bGameClear)
+		{
+			input.OnKeyDown(static_cast<unsigned int>(wParam));
+		}
+
 		switch (wParam)
 		{
-		case VK_UP: keyUp = true; break;
-		case VK_DOWN: keyDown = true; break;
-		case VK_RIGHT: keyRight = true; break;
-		case VK_LEFT: keyLeft = true; break;
-		case VK_SPACE:  // 총알 발사
-			bullet[bulletCnt].active = true;
-			bulletCnt = (bulletCnt + 1) % MAX_BULLET;
-
-			// *총알 발사 효과음
-			mciSendString(L"play shotSound from 0", NULL, 0, NULL);
-			break;
 		case VK_F1:  // 게임 퍼즈
+			if (!bGameStart || bGameClear) break;
+			input.Reset();
 			if (bGamePause == false)
 			{
 				bGamePause = true;
@@ -1516,34 +1518,36 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		break;
 	}
 	case WM_KEYUP:
-		switch (wParam)
-		{
-		case VK_UP: keyUp = false; break;
-		case VK_DOWN: keyDown = false; break;
-		case VK_RIGHT: keyRight = false; break;
-		case VK_LEFT: keyLeft = false; break;
-		}
+		input.OnKeyUp(static_cast<unsigned int>(wParam));
+		break;
+	case WM_KILLFOCUS:
+		input.Reset();
 		break;
 	case WM_TIMER:
 	{
-		if (bGameOver) break;
+		if (!bGameStart || bGamePause || bGameOver || bGameClear)
+		{
+			input.Reset();
+			break;
+		}
 		switch (wParam)
 		{
-		case 1: { // 플레이어 방향키 전용 타이머
+		case 1: { // 입력 명령을 받아 플레이어 이동과 발사 처리
+			const InputCommand command = input.ConsumeCommand();
 			//int move = 5; // 5만큼 플레이어 이동 ( 플레이어 이동 예외처리완료 )
 			// 속도 조절 아이템을 위해서 move 가 아니라 전역으로 player_speed 변수를 설정하였습니다!
 			float move = player_speed;
 
-			if (keyUp && player.y > 150)
+			if (command.up && player.y > 150)
 				player.y -= move;
 
-			if (keyDown && player.y + player.size < client.bottom)
+			if (command.down && player.y + player.size < client.bottom)
 				player.y += move;
 
-			if (keyRight && player.x + player.size < client.right)
+			if (command.right && player.x + player.size < client.right)
 				player.x += move;
 
-			if (keyLeft && player.x > client.left)
+			if (command.left && player.x > client.left)
 				player.x -= move;
 			// 총알 위치 최신화 => 플레이어 위치에 의존
 			for (int i = 0; i < MAX_BULLET; ++i)
@@ -1553,6 +1557,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 					bullet[i].x = player.x + player.size / 2 - 15;
 					bullet[i].y = player.y;
 				}
+			}
+			if (command.firePressed)
+			{
+				bullet[bulletCnt].active = true;
+				bulletCnt = (bulletCnt + 1) % MAX_BULLET;
+				mciSendString(L"play shotSound from 0", NULL, 0, NULL);
 			}
 			break;
 		}
@@ -1570,6 +1580,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			{
 				if (gameend == 1)
 					bGameClear = true; // 보스 쓰러뜨리며 게임 종료
+				input.Reset();
 				bGameOver = true;
 				KillTimer(hWnd, 1);
 				KillTimer(hWnd, 2);
