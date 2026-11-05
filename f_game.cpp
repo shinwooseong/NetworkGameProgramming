@@ -1,14 +1,12 @@
 ﻿#include "Assets.h"
-#include <windows.h>
 #include <tchar.h>
 #include <time.h>
 #include <stdbool.h>
-#include <atlImage.h>
 #include <windowsx.h>	// AlphaBlend() 함수 이용
 #include <mmsystem.h>	
 
 #include "Client/Input.h"
-
+#include "Client/Render.h"
 
 #pragma comment(lib, "msimg32.lib")
 #pragma comment(lib, "winmm.lib")
@@ -854,7 +852,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 	static HBITMAP hBitmap;
 
 	static Input input;
-
+	static Render render;
 
 	static bool bGameStart; // 게임시작을 위한 변수 => START BOX 누를시 시작
 	static RECT startBox; // START BOX 
@@ -1136,19 +1134,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		else if (bGameStart && bGameOver == false) // 게임 시작 후 화면
 		{
 			//////////////////////////////////////////////////////////////////////////////////
-			// 배경 그리기
-			int back_height = back[current_back].GetHeight();	// 현재 사용중인 이미지 높이 저장
-			int back_width = back[current_back].GetWidth();		// 현재 사용중인 이미지 너비 저장
-			int scrollY = (int)back_scrollY % back_height; // 스크롤 위치 계산
-
-			// scrollY 음수로 바꾸어서 아래에서 위로 이동하게 바꾼다!
-			if (scrollY > 0) { scrollY -= back_height; }
-
-			// 반복문으로 수정 -> 화면 전체 채우도록 이미지 그림
-			for (int y = -back_height; y < client.bottom + back_height; y += back_height)
-			{
-				back[current_back].Draw(mdc, 0, y + scrollY, client.right, back_height, 0, 0, back_width, back_height);
-			}
+			// 배경 그리기는 Render에 위임합니다.
+			render.DrawBackground(mdc, back[current_back],
+				client.right, client.bottom, back_scrollY);
 			/////////////////////////////////////////////////////////////////////////////////
 
 			// 아이템슬롯 왼쪽 아래
