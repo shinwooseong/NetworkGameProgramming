@@ -169,9 +169,7 @@ RECT client; // 클라이언트 크기 가져오는 전역변수
 
 int score = 0;            // 게임 점수
 
-HBITMAP backBitmap = NULL; // 배경 비트맵
 CImage back[2]; // 배경 이미지
-int backX, backY; // 배경 이미지 사이즈
 int current_back = 0;	// 처음은 낮배경부터 , 0 = 낮 , 1= 밤
 int back_scrollX = 0;		// 배경 수평 스크롤
 float back_scrollY = 0.0f;		// 배경 수직 스크롤
@@ -826,23 +824,7 @@ int Check_Item_Player_Collision()
 }
 
 
-void Draw_Glow_Effect(HDC mdc, int x, int y, int icon_size)
-{
-	const int margin = 5; // 테두리 여유
-	RECT outlineRect = { x - margin, y - margin, x + icon_size + margin, y + icon_size + margin };
 
-	// 밝은 색의 펜 (흰색 또는 연노랑색 등)
-	HPEN brightPen = CreatePen(PS_SOLID, 3, RGB(255, 255, 200)); // 밝은 색 테두리
-	HPEN oldPen = (HPEN)SelectObject(mdc, brightPen);
-
-	HBRUSH oldBrush = (HBRUSH)SelectObject(mdc, GetStockObject(NULL_BRUSH)); // 내부 채우지 않음
-
-	Rectangle(mdc, outlineRect.left, outlineRect.top, outlineRect.right, outlineRect.bottom);
-
-	SelectObject(mdc, oldBrush);
-	SelectObject(mdc, oldPen);
-	DeleteObject(brightPen);
-}
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -920,14 +902,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		// 배경 이미지 정보 가져오기 /////////////////////////////////////////////////
 		back[0].Load(Assets::background_1().c_str());
 		back[1].Load(Assets::background_2().c_str());
-		backX = back[0].GetWidth(); backY = back[0].GetHeight();
-
-		CImage tmp;
-		tmp.Create(client.right, client.bottom, 32);
-		HDC hdcTmp = tmp.GetDC();
-		back[0].Draw(hdcTmp, 0, 0, client.right, client.bottom, 0, 0, backX, backY);
-		tmp.ReleaseDC();
-		backBitmap = tmp.Detach();
+		
 		///////////////////////////////////////////////////////////////////////////////
 
 		// 플레이어 이미지 정보 가져오기 
@@ -1093,43 +1068,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		LineTo(mdc, client.right, 200);*/
 		if (bGameOver)
 		{
-			PlaySound(NULL, 0, 0);
-			GameEndBGImage.Draw(mdc, 0, 0, client.right, client.bottom, 0, 0, GameEndBGImageW, GameEndBGImageH);
-			if (bGameClear)
-				GameClearBGImage.Draw(mdc, client.right / 2 - 150, client.bottom / 2 - 100, 300, 200, 0, 0, GameClearBGImageW, GameClearBGImageH);
-			else
-				GameOverImage.Draw(mdc, client.right / 2 - 150, client.bottom / 2 - 100, 300, 200, 0, 0, overImageW, overImageH);
+			CImage& resultImage = bGameClear ? GameClearBGImage : GameOverImage;
 
-
-			SetBkMode(mdc, TRANSPARENT);
-			TextOut(mdc, client.right / 2 - 110, client.bottom / 2 + 50, L"Press Enter to Restart / Esc to Quit", lstrlen(L"Press Enter to Restart / Esc to Quit"));
-
-			TCHAR timeBuf[64];
-			swprintf_s(timeBuf, _countof(timeBuf), L"Your PlayTime: %.1f sec", GameTime);
-			TextOutW(mdc, client.right / 2 - 70, client.bottom / 2 + 80, timeBuf, lstrlenW(timeBuf));
-
-			wchar_t scoreBuf[64];
-			swprintf_s(scoreBuf, L"Your Score: %d", score);
-			TextOutW(mdc, client.right / 2 - 60, client.bottom / 2 + 110, scoreBuf, (int)wcslen(scoreBuf));
+			render.DrawResultScreen(mdc, client.right, client.bottom,
+				GameEndBGImage, resultImage, GameTime, score);
 		}
 
 
 
-		if (bGameStart == false && bGameOver == false) // 게임시작 전 화면
+		if (bGameStart == false && bGameOver == false) // 게임 시작 전 화면
 		{
-			GameStartBGImage.Draw(mdc, 0, 0, client.right, client.bottom, 0, 0, GameStartBGImageW, GameStartBGImageH);
-
-			SetBkMode(mdc, TRANSPARENT);
-			TextImage.Draw(mdc, client.right / 2 - 150, client.bottom / 2 - 135, 300, 90, 0, 0, textW, textH);
-			SetTextColor(mdc, RGB(255, 255, 255));
-
-			//Rectangle(mdc, startBox.left, startBox.top, startBox.right, startBox.bottom);
-			GameStartImage.Draw(mdc, client.right / 2 - 150, client.bottom / 2 - 80, 300, 200, 0, 0, startImageW, startImageH);
-
-			TCHAR buf[50];
-			swprintf_s(buf, L"Click 'START' TO GAME START", lstrlen(L"Click 'START' TO GAME START"));
-			TextOut(mdc, client.right / 2 - 100, client.bottom / 2 - 100, buf, lstrlen(buf));
-
+			render.DrawStartScreen(mdc, client.right, client.bottom,
+				GameStartBGImage, TextImage, GameStartImage);
 		}
 		else if (bGameStart && bGameOver == false) // 게임 시작 후 화면
 		{
@@ -1139,58 +1089,39 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 				client.right, client.bottom, back_scrollY);
 			/////////////////////////////////////////////////////////////////////////////////
 
-			// 아이템슬롯 왼쪽 아래
-			ItemSlotImage.Draw(mdc, 0, client.bottom - 100, 100, 100, 0, 0, ItemSlotImageW, ItemSlotImageH);
+			// 아이템 슬롯 왼쪽 아래
+			render.DrawSprite(mdc, ItemSlotImage,
+				0, client.bottom - 100, 100, 100, ItemSlotImageW, ItemSlotImageH);
+
 			if (has_rebirth)
-				itemImages[ITEM_REBIRTH].Draw(mdc, 0, client.bottom - 100, 100, 100, 0, 0, item_image_W[ITEM_REBIRTH], item_image_H[ITEM_REBIRTH]);
+			{
+				render.DrawSprite(mdc, itemImages[ITEM_REBIRTH],
+					0, client.bottom - 100, 100, 100,
+					item_image_W[ITEM_REBIRTH], item_image_H[ITEM_REBIRTH]);
+			}
 
 			// 보스 출력
+			// 보스의 체력에 따라 표시할 이미지를 선택합니다.
+			CImage* bossImage = &enemyImage3;
+
 			if (enemy.hp > 200 && enemy.hp <= 300)
-				enemyImage.Draw(mdc, enemy.x, enemy.y, enemy.size, enemy.size, 0, 0, enemyImageX, enemyImageY);
+				bossImage = &enemyImage;
 			else if (enemy.hp > 100 && enemy.hp <= 200)
-				enemyImage2.Draw(mdc, enemy.x, enemy.y, enemy.size, enemy.size, 0, 0, enemyImageX, enemyImageY);
-			else
-				enemyImage3.Draw(mdc, enemy.x, enemy.y, enemy.size, enemy.size, 0, 0, enemyImageX, enemyImageY);
-			// 보스 체력바 출력
-			TCHAR buf[50];
-			swprintf_s(buf, _countof(buf), L"enemy hp : %d", enemy.hp);
-			TextOut(mdc, enemy.x + enemy.size, enemy.y + enemy.size, buf, lstrlen(buf));
+				bossImage = &enemyImage2;
 
-			const int hpbarheight = 20;
-			RECT hpBarBackGround = { enemy.x, enemy.y - hpbarheight, enemy.x + enemy.size, enemy.y - hpbarheight / 2 }; // 체력바 배경
-			HBRUSH hpbackBrush = CreateSolidBrush(RGB(100, 100, 100));
-			FillRect(mdc, &hpBarBackGround, hpbackBrush);
-			DeleteObject(hpbackBrush);
-
-			RECT hpBar = { enemy.x, enemy.y - hpbarheight, enemy.x + enemy.hp / 3 , enemy.y - hpbarheight / 2 }; // enemy.hp == 300  // enemy.size == 100
-			HBRUSH hpbarBrush = CreateSolidBrush(RGB(255, 0, 0));
-			FillRect(mdc, &hpBar, hpbarBrush);
-			DeleteObject(hpbarBrush);
+			render.DrawEnemy(mdc, *bossImage, enemyImageX, enemyImageY,
+				enemy.x, enemy.y, enemy.size, enemy.hp);
 			///////////////////////////////////////////
 
 
 
 
 			// 플레이어 출력
-			if (IsGetItem == false) // 플레이어 아이템 먹을시 깜빡임
-				playerImage.Draw(mdc, player.x, player.y, player.size, player.size, 0, 0, playerImageX, playerImageY);
-			else if (blinkCnt % 2 == 0)
-				playerImage.Draw(mdc, player.x, player.y, player.size, player.size, 0, 0, playerImageX, playerImageY);
+			// 아이템을 먹은 동안에는 짝수 프레임에서만 캐릭터를 표시합니다.
+			const bool showPlayerSprite = !IsGetItem || blinkCnt % 2 == 0;
 
-			// 플레이어 체력바 출력
-			TCHAR buff[50];
-			swprintf_s(buff, _countof(buff), L"player hp : %d", player.hp);
-			TextOut(mdc, player.x + player.size, player.y + player.size, buff, lstrlen(buff));
-
-			const int hpmarin = 5;
-			RECT playerhpback = { player.x, player.y + player.size + hpmarin, player.x + player.size, player.y + player.size + hpmarin * 2 }; // player.size == 100
-			hpbackBrush = CreateSolidBrush(RGB(100, 100, 100));
-			FillRect(mdc, &playerhpback, hpbackBrush);
-			DeleteObject(hpbackBrush);
-			RECT playerhp = { player.x, player.y + player.size + hpmarin, player.x + player.hp * 10 , player.y + player.size + hpmarin * 2 }; // player.hp == 10
-			hpbarBrush = CreateSolidBrush(RGB(255, 0, 0));
-			FillRect(mdc, &playerhp, hpbarBrush);
-			DeleteObject(hpbarBrush);
+			render.DrawPlayer(mdc, playerImage,
+				player.x, player.y, player.size, player.hp, showPlayerSprite);
 
 			/////////////////////////////////////////////
 
@@ -1198,157 +1129,144 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			for (int i = 0; i < MAX_BULLET; ++i)
 			{
 				if (bullet[i].active)
-					bulletImage.Draw(mdc, bullet[i].x, bullet[i].y, bullet[i].size, bullet[i].size, 0, 0, bulletImageX, bulletImageY);
+				{
+					render.DrawSprite(mdc, bulletImage,
+						bullet[i].x, bullet[i].y,
+						bullet[i].size, bullet[i].size,
+						bulletImageX, bulletImageY);
+				}
 
 				if (bullet[i].explosion)
-					explosionImage[bullet[i].explosionCnt].Draw(mdc, bullet[i].exploX, bullet[i].exploY, 50, 50, 0, 0, explosionImageX, explosionImageY);
+				{
+					render.DrawSprite(mdc, explosionImage[bullet[i].explosionCnt],
+						bullet[i].exploX, bullet[i].exploY,
+						50, 50, explosionImageX, explosionImageY);
+				}
 			}
 
-			// 보스 장애물 (빨간원) 출력
+			// 보스 장애물과 충돌 폭발
 			for (int i = 0; i < MAX_REDCIRCLE; ++i)
 			{
-				if (redcircle[i].active)
-					redcircleImage.Draw(mdc, redcircle[i].x, redcircle[i].y, redcircle[i].size, redcircle[i].size, 0, 0, redcircleImageW, redcircleImageH);
+				const auto& circle = redcircle[i];
 
-				// 폭발 출력
-				if (redcircle[i].explosion)
-					playerExplo[redcircle[i].explosionCnt].Draw(mdc, redcircle[i].exploX, redcircle[i].exploY, 75, 75, 0, 0, playerExW, playerExH);
+				if (circle.active)
+				{
+					render.DrawSprite(mdc, redcircleImage,
+						circle.x, circle.y, circle.size, circle.size,
+						redcircleImageW, redcircleImageH);
+				}
+
+				if (circle.explosion)
+				{
+					render.DrawSprite(mdc, playerExplo[circle.explosionCnt],
+						circle.exploX, circle.exploY, 75, 75,
+						playerExW, playerExH);
+				}
 			}
 
-			// 빨간 선 및 운석 출력	
+			// 경고선을 먼저 그리고 그 위에 운석을 그립니다.
 			if (meteor.lineActive)
 			{
-				HPEN hPen = CreatePen(PS_SOLID, 3, RGB(255, 0, 0));
-				HPEN hOld = (HPEN)SelectObject(mdc, hPen);
-				MoveToEx(mdc, meteor.x + (meteor.size / 2), 0, NULL);
-				LineTo(mdc, meteor.x + (meteor.size / 2), meteor.lineY);
-				SelectObject(mdc, hOld);
-				DeleteObject(hPen);
+				const int centerX = static_cast<int>(meteor.x + meteor.size / 2);
+				render.DrawMeteorWarning(mdc, centerX, meteor.lineY);
 
 				if (meteor.meteorActive)
 				{
-					//RECT rMeteor = { meteor.x + 20,meteor.y + 20, meteor.x + meteor.size - 20, meteor.y + meteor.size - 20 };
-					//Rectangle(mdc, rMeteor.left, rMeteor.top, rMeteor.right, rMeteor.bottom);
-					meteorImage[meteor.animationCnt].Draw(mdc, meteor.x, meteor.y, meteor.size, meteor.size, 0, 0, meteorImageW, meteorImageH);
+					render.DrawSprite(mdc, meteorImage[meteor.animationCnt],
+						meteor.x, meteor.y, meteor.size, meteor.size,
+						meteorImageW, meteorImageH);
 				}
 			}
 
-			// 운석 충돌 폭발
+			// 운석에 맞았을 때 플레이어 위치에 폭발을 표시합니다.
 			if (meteor.explosion)
-				playerExplo[meteor.explosionCnt].Draw(mdc, player.x, player.y, 100, 100, 0, 0, playerExW, playerExH);
+			{
+				render.DrawSprite(mdc, playerExplo[meteor.explosionCnt],
+					player.x, player.y, 100, 100, playerExW, playerExH);
+			}
 
-			// 부활 이펙트
+			// 부활 효과
 			if (player.revive)
-				reviveImage[player.reviveAnimation].Draw(mdc, player.x, player.y, 100, 100, 0, 0, reviveImageW, reviveImageH);
+			{
+				render.DrawSprite(mdc, reviveImage[player.reviveAnimation],
+					player.x, player.y, 100, 100, reviveImageW, reviveImageH);
+			}
 
-			// 아이템 생성 전 이펙트
+			// 아이템이 나타나기 전 효과
 			for (int i = 0; i < MAX_ITEM_EFFECT; ++i)
 			{
-				if (itemEffects[i].active)
-				{
-					int frame = itemEffects[i].animation_count % 4;
-					int newSize = 100; // 크기 고정
+				if (!itemEffects[i].active)
+					continue;
 
-					item_effectImage[frame].Draw(mdc, itemEffects[i].x, itemEffects[i].y, newSize, newSize,
-						0, 0, item_effectImage[frame].GetWidth(), item_effectImage[frame].GetHeight());
+				const int frame = itemEffects[i].animation_count % 4;
+				CImage& image = item_effectImage[frame];
+
+				if (!image.IsNull())
+				{
+					render.DrawSprite(mdc, image,
+						itemEffects[i].x, itemEffects[i].y, 100, 100,
+						image.GetWidth(), image.GetHeight());
 				}
 			}
 
-
-			// 아이템 생성
+			// 바닥에 있는 아이템
 			for (int i = 0; i < MAX_ITEM; ++i)
 			{
 				if (!items[i].active)
-				{
 					continue;
-				}
 
-				float x = items[i].x;
-				float y = items[i].y;
-				float size = items[i].size - 10;
+				const auto& item = items[i];
+				const float size = item.size - 10;
 
-				itemImages[items[i].type].Draw(mdc, x, y, size, size, 0, 0, item_image_W[items[i].type], item_image_H[items[i].type]);
+				render.DrawSprite(mdc, itemImages[item.type],
+					item.x, item.y, size, size,
+					item_image_W[item.type], item_image_H[item.type]);
 			}
 
 
-			// 안개 활성화 시
 			if (fog_alpha > 0)
 			{
-				// 화면에 안개 출력
-				HDC fogDC = CreateCompatibleDC(mdc);
-				HBITMAP fogBmp = fogImage.Detach();
-				SelectObject(fogDC, fogBmp);
-
-				BLENDFUNCTION bf = { AC_SRC_OVER, 0, (BYTE)fog_alpha, AC_SRC_ALPHA };
-				AlphaBlend(mdc, 0, 0, client.right, client.bottom,
-					fogDC, 0, 0, fog_image_W, fog_image_H, bf);
-
-				fogImage.Attach(fogBmp);
-				DeleteDC(fogDC);
+				render.DrawFog(mdc, fogImage, client.right, client.bottom,
+					static_cast<BYTE>(fog_alpha));
 			}
 
-			// 화면 바래면서 변화
 			if (fade_alpha > 0 && !background_changed)
 			{
-				HBRUSH hFade = CreateSolidBrush(RGB(255, 255, 240));	// 색 바꾸면 변함!!
-				HDC fadeDC = CreateCompatibleDC(mdc);
-				HBITMAP fadeBitmap = CreateCompatibleBitmap(mdc, client.right, client.bottom);
-				SelectObject(fadeDC, fadeBitmap);
-				FillRect(fadeDC, &client, hFade);
-
-				BLENDFUNCTION bf = { AC_SRC_OVER, 0, (BYTE)fade_alpha,0 };
-				AlphaBlend(mdc, 0, 0, client.right, client.bottom, fadeDC, 0, 0, client.right, client.bottom, bf);
-				DeleteObject(hFade);
-				DeleteObject(fadeBitmap);
-				DeleteDC(fadeDC);
+				render.DrawFade(mdc, client.right, client.bottom,
+					static_cast<BYTE>(fade_alpha));
 			}
 
-			int icon_size = 55;		// 아이콘 크기
-			int spacing = 6;		// 아이콘 간 간격
-			int i_x = client.right - icon_size - spacing;
-			int i_y = 10;
-
-			// 구름 먹고 보스있는 위치 가려지기
-			if (is_fog_active)
-			{
-				int cloudY = -70;
-				int cloudHeight = 400;          // 충분히 넓은 높이로 라인 전체를 가림
-				int cloudWidth = client.right + 100;  // 화면 전체 너비
-
-				itemImages[ITEM_FOG].Draw(mdc, 0, cloudY, cloudWidth, cloudHeight, 0, 0, item_image_W[ITEM_FOG], item_image_H[ITEM_FOG]);
-			}
-
+			const int iconSize = 55;
+			const int spacing = 6;
+			int iconX = client.right - iconSize - spacing;
+			const int iconY = 10;
 
 			if (is_fog_active)
 			{
-				Draw_Glow_Effect(mdc, i_x, i_y, icon_size);
-				itemImages[ITEM_FOG].Draw(mdc, i_x, i_y, icon_size, icon_size, 0, 0,
+				// 보스 영역을 가리는 구름을 먼저 그립니다.
+				render.DrawSprite(mdc, itemImages[ITEM_FOG],
+					0, -70, client.right + 100, 400,
 					item_image_W[ITEM_FOG], item_image_H[ITEM_FOG]);
-				i_x -= (icon_size + spacing);
+
+				render.DrawStatusIcon(mdc, itemImages[ITEM_FOG],
+					iconX, iconY, iconSize,
+					item_image_W[ITEM_FOG], item_image_H[ITEM_FOG]);
+
+				iconX -= iconSize + spacing;
 			}
+
 			if (is_speed_active)
 			{
-				Draw_Glow_Effect(mdc, i_x, i_y, icon_size);
-
-				itemImages[ITEM_SPEED].Draw(mdc, i_x, i_y, icon_size, icon_size, 0, 0,
+				render.DrawStatusIcon(mdc, itemImages[ITEM_SPEED],
+					iconX, iconY, iconSize,
 					item_image_W[ITEM_SPEED], item_image_H[ITEM_SPEED]);
-				i_x -= (icon_size + spacing);
 			}
 
 			if (bGamePause)
 			{
-				HPEN hBlack = CreatePen(PS_SOLID, 2, BLACK_PEN);
-				HPEN oldpen = (HPEN)SelectObject(mdc, hBlack);
-				int rSize = 50;
-				RECT rCenter = { client.right / 2 - rSize * 2,client.bottom / 2 - rSize,
-					client.right / 2 + rSize * 2,client.bottom / 2 + rSize };
-				Rectangle(mdc, rCenter.left, rCenter.top, rCenter.right, rCenter.bottom);
-				SetBkMode(mdc, TRANSPARENT); // 배경 투명하게 설정
-				DrawText(mdc, L"GamePause", lstrlen(L"GamePause"), &rCenter, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
-
-				SelectObject(mdc, oldpen);
-				DeleteObject(hBlack);
+				render.DrawPause(mdc, client.right, client.bottom);
 			}
+
 		}
 
 		ReportFps(bGameStart && !bGameOver && !bGamePause);
@@ -1762,7 +1680,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		mciSendString(L"close fogSound", NULL, 0, NULL);
 		mciSendString(L"close loseSound", NULL, 0, NULL);
 
-		DeleteObject(backBitmap);
 		back[0].Destroy();
 		back[1].Destroy();
 		playerImage.Destroy();
