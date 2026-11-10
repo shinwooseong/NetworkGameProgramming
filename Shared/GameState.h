@@ -2,6 +2,8 @@
 #include <array>
 
 constexpr int MAX_PLAYERS = 2;
+constexpr int MAX_BULLET = 10;
+
 
 struct PlayerState
 {
@@ -20,4 +22,5 @@ struct PlayerState
 struct GameState
 {
 	PlayerState players[MAX_PLAYERS];
+
 };

@@ -21,6 +21,12 @@
     <ClCompile Include="f_game.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="Client\Input.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Shared\GameSimulation.cpp">
+      <Filter>Shared</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Assets.h">
@@ -35,9 +41,19 @@
     <ClInclude Include="Shared\InputCommand.h">
       <Filter>Shared</Filter>
     </ClInclude>
+    <ClInclude Include="Client\Input.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Shared\GameSimulation.h">
+      <Filter>Shared</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Client\Render.cpp"><Filter>소스 파일</Filter></ClCompile>
-    <ClInclude Include="Client\Render.h"><Filter>헤더 파일</Filter></ClInclude>
+    <ClCompile Include="Client\Render.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClInclude Include="Client\Render.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

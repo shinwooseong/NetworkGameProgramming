@@ -7,12 +7,13 @@
 
 #include "Client/Input.h"
 #include "Client/Render.h"
+#include "Shared/GameSimulation.h"
+
 
 #pragma comment(lib, "msimg32.lib")
 #pragma comment(lib, "winmm.lib")
 
 #define PIE 3.14159265
-#define MAX_BULLET 10
 #define MAX_REDCIRCLE 10
 #define MAX_ITEM 15
 #define MAX_ITEM_EFFECT 15
@@ -235,17 +236,7 @@ Enemy enemy; // 보스 선언
 CImage bulletImage; // 총알 이미지
 int bulletImageX, bulletImageY; // 총알 이미지 사이즈
 
-typedef struct Bullet
-{
-	float x, y;
-	float size;
-	float speed;
-	bool active; // 총알 활성화 ( active시 출력 )
 
-	bool explosion; // true시 폭발 이미지 출력
-	float exploX, exploY; // 폭발 이미지 크기
-	int explosionCnt = 0; // 애니메이션
-}Bullet;
 Bullet bullet[MAX_BULLET]; // 총알 개수
 int bulletCnt = 0;
 
@@ -383,49 +374,6 @@ void ShotBullet()
 		if (bullet[i].active) bullet[i].y -= bullet[i].speed * move * OBJECT_MOVE_RATIO; // active시 좌표이동 => spacebar 입력 !!
 		if (bullet[i].y < 0) bullet[i].active = false; // 총알 화면 밖으로 나갈시 초기화
 	}
-}
-int CheckEnemyBulletCollision()
-{
-	for (int i = 0; i < MAX_BULLET; ++i)
-	{
-		int marin = 40; // 히트박스 조정할 정도,,
-		RECT rBullet = { bullet[i].x,bullet[i].y,bullet[i].x + bullet[i].size,bullet[i].y + bullet[i].size };
-		RECT rEnemy = { enemy.x,enemy.y,enemy.x + enemy.size,enemy.y + enemy.size - marin }; // marin 변수로 히트박스를 줄이기
-		RECT intersect;
-		if (IntersectRect(&intersect, &rBullet, &rEnemy))
-		{
-			enemy.hp--;
-			score += 10;
-			bullet[i].active = false; // 총알 초기화
-			bullet[i].explosion = true; // 폭발 !!
-			bullet[i].exploX = bullet[i].x; bullet[i].exploY = bullet[i].y;
-
-			// * 보스 타격음
-			mciSendString(L"play hitSound from 0", NULL, 0, NULL);
-
-			if (enemy.hp == 0) // 게임종료
-			{
-				score += 100;
-				return 1;
-			}
-		}
-	}
-
-	for (int i = 0; i < MAX_BULLET; ++i)
-	{
-		if (bullet[i].explosion)
-		{
-			bullet[i].explosionCnt++;
-			if (bullet[i].explosionCnt == 3)
-			{
-				bullet[i].explosionCnt = 0;
-				bullet[i].explosion = false;
-				bullet[i].exploX = 0; bullet[i].exploY = 0;
-			}
-		}
-	}
-
-	return 0;
 }
 
 int CheckRedcirclePlayerCollision()
@@ -1439,35 +1387,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		switch (wParam)
 		{
 		case 1: { // 입력 명령을 받아 플레이어 이동과 발사 처리
-			const InputCommand command = input.ConsumeCommand();
+
 			//int move = 5; // 5만큼 플레이어 이동 ( 플레이어 이동 예외처리완료 )
 			// 속도 조절 아이템을 위해서 move 가 아니라 전역으로 player_speed 변수를 설정하였습니다!
-			float move = player_speed;
+			const InputCommand command = input.ConsumeCommand();
 
-			if (command.up && player.y > 150)
-				player.y -= move;
+			MovePlayer(player.x, player.y, player.size, player_speed,
+				command, client.left, client.right, 150, client.bottom);
 
-			if (command.down && player.y + player.size < client.bottom)
-				player.y += move;
-
-			if (command.right && player.x + player.size < client.right)
-				player.x += move;
-
-			if (command.left && player.x > client.left)
-				player.x -= move;
 			// 총알 위치 최신화 => 플레이어 위치에 의존
-			for (int i = 0; i < MAX_BULLET; ++i)
+			if (UpdatePlayerFire(bullet, bulletCnt,
+				player.x, player.y, player.size, command.firePressed))
 			{
-				if (bullet[i].active == false)
-				{
-					bullet[i].x = player.x + player.size / 2 - 15;
-					bullet[i].y = player.y;
-				}
-			}
-			if (command.firePressed)
-			{
-				bullet[bulletCnt].active = true;
-				bulletCnt = (bulletCnt + 1) % MAX_BULLET;
 				mciSendString(L"play shotSound from 0", NULL, 0, NULL);
 			}
 			break;
@@ -1475,10 +1406,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		case 2: { // 나머지 이동 및 충돌처리 타이머
 
 			MoveEnemy(); // 적 
-			ShotBullet(); // 총알 이동
+			MoveBullets(bullet, OBJECT_MOVE_RATIO);
 			MoveRedCircle(); // 장애물(빨간원) 이동
 			MoveMeteor();
-			int gameend = CheckEnemyBulletCollision(); // 총알과 적 충돌처리
+
+			const BulletHitResult hit = CheckEnemyBulletCollision(
+				bullet, enemy.x, enemy.y, enemy.size, enemy.hp, score);
+
+			if (hit.hit)
+				mciSendString(L"play hitSound from 0", NULL, 0, NULL);
+
+			const int gameend = hit.defeated ? 1 : 0;
+			
 			int gameover = CheckRedcirclePlayerCollision(); // 장애물(빨간원) 플레이어 충돌처리
 			int gameover2 = CheckMeteorPlayerCollision();
 			int gameover3 = Check_Item_Player_Collision();

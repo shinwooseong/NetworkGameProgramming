@@ -134,11 +134,13 @@
     <ClCompile Include="Client\Input.cpp" />
     <ClCompile Include="Client\Render.cpp" />
     <ClCompile Include="f_game.cpp" />
+    <ClCompile Include="Shared\GameSimulation.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Assets.h" />
     <ClInclude Include="Client\Input.h" />
     <ClInclude Include="Client\Render.h" />
+    <ClInclude Include="Shared\GameSimulation.h" />
     <ClInclude Include="Shared\GameState.h" />
     <ClInclude Include="Shared\InputCommand.h" />
     <GameResource Include="resources\**\*" />
