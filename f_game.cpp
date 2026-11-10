@@ -13,12 +13,7 @@
 #pragma comment(lib, "msimg32.lib")
 #pragma comment(lib, "winmm.lib")
 
-#define PIE 3.14159265
-#define MAX_REDCIRCLE 10
-#define MAX_ITEM 15
-#define MAX_ITEM_EFFECT 15
 
-const float PLAYER_MOVE_RATIO = 17.0f / 30.0f;
 const float OBJECT_MOVE_RATIO = 17.0f / 31.0f;
 
 
@@ -168,7 +163,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 }
 RECT client; // 클라이언트 크기 가져오는 전역변수
 
-int score = 0;            // 게임 점수
 
 CImage back[2]; // 배경 이미지
 int current_back = 0;	// 처음은 낮배경부터 , 0 = 낮 , 1= 밤
@@ -198,47 +192,17 @@ int buttonW, buttonH;
 
 CImage playerImage; // 플레이어 이미지
 int playerImageX, playerImageY; // 이미지 사이즈
-typedef struct Player
-{
-	float x, y;
-	int size;
 
-	int hp;
-
-	bool revive;
-	int reviveAnimation;
-}Player;
-Player player;
-
-float player_speed = 5.0f;	// 플레이어 속도
-int speed_up_timer = 0;		// 속도 증가 아이템 먹은 시간 체크
-
-bool IsGetItem = false; // 아이템 먹을시 깜빡거림
 
 CImage enemyImage; // 적 이미지
 CImage enemyImage2;
 CImage enemyImage3;
 int enemyImageX, enemyImageY; // 적 이미지 사이즈
-typedef struct Enemy
-{
-	float x, y; // 위치
-	float size; // 크기
-	float dx, dy; // 방향 변수
-	float speed; // 속도
-	int directionChangeCounter; // 랜덤 방향 이동을 위한 변수
-
-	int hp; //
-}Enemy;
-Enemy enemy; // 보스 선언
-
 
 
 CImage bulletImage; // 총알 이미지
 int bulletImageX, bulletImageY; // 총알 이미지 사이즈
 
-
-Bullet bullet[MAX_BULLET]; // 총알 개수
-int bulletCnt = 0;
 
 CImage explosionImage[4];
 int explosionImageX, explosionImageY;
@@ -250,60 +214,12 @@ int playerExW, playerExH;
 CImage redcircleImage;
 int redcircleImageW, redcircleImageH;
 
-typedef struct Obstacle
-{
-	float size;
-	float x, y;
-	float dx, dy;
-	float speed;
-	bool active;
-
-	bool explosion;
-	float exploX, exploY; // 폭발 이미지 크기
-	int explosionCnt = 0;
-	//int frame; // 폭발지속 시간
-
-}Obstacle;
-
-Obstacle redcircle[MAX_REDCIRCLE]; // 보스가 쏘는 장애물
-
 
 CImage meteorImage[3];
 int meteorImageW, meteorImageH;
 
-typedef struct Meteor
-{
-	float size;
-	float x, y;
-	bool lineActive;
-	bool meteorActive;
-	int animationCnt;
-
-	int lineY;
-	int delayCnt;
-
-	bool explosion;
-	float exploX, exploY;
-	int explosionCnt = 0;
-
-
-
-}Meteor;
-
-Meteor meteor; // 스테이지 2 운석 장애물
-
-
-
 
 // 아이템들 종류
-typedef enum ItemType
-{
-	ITEM_HEAL,		// 힐팩
-	ITEM_SPEED,		// 속도 증가
-	ITEM_POSION,	// 독
-	ITEM_FOG,		// 안개
-	ITEM_REBIRTH	// 부활
-}ItemType;
 
 CImage itemImages[5];
 int item_image_W[5], item_image_H[5];
@@ -312,252 +228,18 @@ int item_image_W[5], item_image_H[5];
 CImage ItemSlotImage;
 int ItemSlotImageW, ItemSlotImageH;
 
-// 아이템 구조체
-typedef struct Item
-{
-	float x, y;		// 생성 위치
-	float size;		// 아이템 크기
-	bool active;	// 아이템 활성화
-	ItemType type;	// 아이템 종류
-}Item;
 
-Item items[MAX_ITEM];
+
 
 // 아이템 등장시 이펙트
-typedef struct ItemEffect
-{
-	float x, y;
-	bool active;
-	int animation_count;	// 애니메이션 프레임
-	int duration;	// 이펙트 지속시간
-}ItemEffect;
 CImage item_effectImage[4];
 
-
-ItemEffect itemEffects[MAX_ITEM_EFFECT];
 
 CImage reviveImage[3];
 int reviveImageW, reviveImageH;
 
 CImage fogImage;
 int fog_image_W, fog_image_H;
-bool fog_active = FALSE;
-int fog_timer = 0;
-bool has_rebirth = FALSE;
-
-void MoveEnemy()
-{
-	// 적 이동
-	enemy.x += enemy.speed * enemy.dx * OBJECT_MOVE_RATIO;
-	enemy.y += enemy.speed * enemy.dy * OBJECT_MOVE_RATIO;
-
-
-	// 랜덤 이동
-	enemy.directionChangeCounter++; // 50 이상되면 보스의 방향이 랜덤으로 바뀜
-	if (enemy.directionChangeCounter > 50) {
-		float angle = (float)(rand() % 360) * PIE / 180.0;
-		enemy.dx = cos(angle);
-		enemy.dy = sin(angle);
-		enemy.directionChangeCounter = 0;
-	}
-
-
-	// 화면 가장자리 튕기기
-	if (enemy.x < 0 || enemy.x + enemy.size > client.right) enemy.dx *= -1;
-	if (enemy.y < 0 || enemy.y + enemy.size > 200) enemy.dy *= -1;
-}
-void ShotBullet()
-{
-	int move = 15; // 15만큼 이동
-	for (int i = 0; i < MAX_BULLET; ++i)
-	{
-		if (bullet[i].active) bullet[i].y -= bullet[i].speed * move * OBJECT_MOVE_RATIO; // active시 좌표이동 => spacebar 입력 !!
-		if (bullet[i].y < 0) bullet[i].active = false; // 총알 화면 밖으로 나갈시 초기화
-	}
-}
-
-int CheckRedcirclePlayerCollision()
-{
-	for (int i = 0; i < MAX_REDCIRCLE; ++i)
-	{
-		int marin = 20;
-		RECT rRedcircle = { redcircle[i].x,redcircle[i].y ,redcircle[i].x + redcircle[i].size ,redcircle[i].y + redcircle[i].size };
-		RECT rPlayer = { player.x + marin, player.y + marin,player.x + player.size - marin, player.y + player.size - marin };
-		RECT intersectRect;
-		if (IntersectRect(&intersectRect, &rRedcircle, &rPlayer) && redcircle[i].active)
-		{
-			player.hp--;
-
-			// *플레이어 타격음
-			mciSendString(L"play hurtSound from 0", NULL, 0, NULL);
-
-
-			// 부활 처리
-			if (has_rebirth && player.hp <= 0)
-			{
-				player.hp = 5;
-				has_rebirth = FALSE;
-				// 부활 이펙트 반영
-				player.revive = true;
-				player.reviveAnimation = 0;
-
-				mciSendString(L"play reviveSound from 0", NULL, 0, NULL);
-			}
-
-			// 게임종료 !!!!!!!!!!!
-			if (!has_rebirth && player.hp <= 0)
-			{
-				return 1;
-			}
-
-			redcircle[i].active = false;
-			if (redcircle[i].active == false) // 충돌시 한번 작동
-			{
-				redcircle[i].explosion = true;
-				redcircle[i].exploX = redcircle[i].x; redcircle[i].exploY = redcircle[i].y;
-				redcircle[i].explosionCnt = 0;
-				redcircle[i].x = enemy.x + enemy.size / 2;
-				redcircle[i].y = enemy.y + enemy.size;
-			}
-		}
-	}
-	return 0;
-}
-
-int CheckMeteorPlayerCollision()
-{
-	int marin = 20;
-	RECT rMeteor = { meteor.x + marin,meteor.y + marin, meteor.x + meteor.size - marin, meteor.y + meteor.size - marin };
-	RECT rPlayer = { player.x, player.y,player.x + player.size, player.y + player.size };
-	RECT intersectRect;
-	if (IntersectRect(&intersectRect, &rMeteor, &rPlayer) && meteor.meteorActive)
-	{
-		player.hp--;
-
-		// *플레이어 타격음
-		mciSendString(L"play hurtSound from 0", NULL, 0, NULL);
-
-
-		if (has_rebirth && player.hp <= 0)
-		{
-			player.hp = 5;
-			has_rebirth = FALSE;
-			// 부활이펙트 반영
-			player.revive = true;
-			player.reviveAnimation = 0;
-
-			// *부활 효과음
-			mciSendString(L"play reviveSound from 0", NULL, 0, NULL);
-		}
-
-		// 게임종료 !!!!!!!!!!!
-		if (!has_rebirth && player.hp <= 0)
-		{
-			return 1;
-		}
-
-		meteor.meteorActive = false;
-		if (meteor.meteorActive == false)
-		{
-			meteor.lineActive = false;
-			meteor.lineY = 0;
-			meteor.explosion = true;
-			meteor.exploX = meteor.x + (meteor.size / 2), meteor.exploY = meteor.y;
-			meteor.explosionCnt = 0;
-			meteor.y = 0;
-		}
-	}
-	return 0;
-}
-
-void playerExplosion() // 플레이어 충돌 폭발 애니메이션
-{
-	for (int i = 0; i < MAX_REDCIRCLE; ++i)
-	{
-		if (redcircle[i].explosion)
-		{
-			redcircle[i].explosionCnt++;
-			if (redcircle[i].explosionCnt == 3)
-			{
-				redcircle[i].explosionCnt = 0;
-				redcircle[i].explosion = false;
-				redcircle[i].exploX = 0; redcircle[i].exploY = 0;
-			}
-		}
-	}
-
-	if (meteor.explosion)
-	{
-		meteor.explosionCnt++;
-		if (meteor.explosionCnt == 3)
-		{
-			meteor.explosionCnt = 0;
-			meteor.explosion = false;
-			meteor.exploX = 0, meteor.exploY = 0;
-		}
-	}
-}
-
-void SpawnRedcircle()
-{
-	for (int i = 0; i < MAX_REDCIRCLE; ++i)
-	{
-		if (redcircle[i].active == false)
-		{
-			redcircle[i].active = true;
-
-			redcircle[i].x = enemy.x + enemy.size / 2 - 10;
-			redcircle[i].y = enemy.y + enemy.size - 10;
-
-			// 플레이어쪽 방향계산해서 플레이어방향으로 쏘기
-			float vx = (player.x + player.size / 2) - redcircle[i].x;
-			float vy = (player.y + player.size / 2) - redcircle[i].y;
-			float mag = sqrtf(vx * vx + vy * vy);
-			redcircle[i].dx = vx / mag;
-			redcircle[i].dy = vy / mag;
-
-			break; // 하나씩 쏘기 
-		}
-	}
-}
-
-void MoveRedCircle()
-{
-	for (int i = 0; i < MAX_REDCIRCLE; ++i)
-	{
-		if (redcircle[i].active)
-		{
-			redcircle[i].x += redcircle[i].speed * redcircle[i].dx * OBJECT_MOVE_RATIO;
-			redcircle[i].y += redcircle[i].speed * redcircle[i].dy * OBJECT_MOVE_RATIO;
-		}
-
-		if (redcircle[i].x > client.right || redcircle[i].x < client.left || redcircle[i].y > client.bottom)
-			redcircle[i].active = false;
-	}
-}
-
-
-
-void MoveMeteor()
-{
-	if (meteor.meteorActive)
-	{
-		meteor.y += 10.0f * OBJECT_MOVE_RATIO;
-		meteor.animationCnt++;
-		meteor.animationCnt = meteor.animationCnt % 3; // 0 1 2
-	}
-
-	if (meteor.y >= client.bottom)
-	{
-		meteor.meteorActive = false;
-		meteor.lineActive = false;
-		meteor.y = 0;
-		meteor.lineY = 0;
-	}
-}
-
-
-
 
 // 보스 체력에 따른 배경변화!
 // 일정 체력에 도달 시 바로 배경이 변하면 부자연스러워서
@@ -567,9 +249,9 @@ bool start_fade = FALSE;
 bool end_fade = FALSE;
 int fade_alpha = 0;
 
-void Change_Background_Fade(HWND hWnd)
+void Change_Background_Fade(int enemyHp)
 {
-	if (!background_changed && !start_fade && enemy.hp <= 200)	// 체력 도달
+	if (!background_changed && !start_fade && enemyHp <= 200)	// 체력 도달
 	{
 		start_fade = true;
 		end_fade = true;
@@ -604,175 +286,25 @@ void Change_Background_Fade(HWND hWnd)
 	}
 }
 
-// 아이템 초기화
-void Init_Items()
+void PlayGameEvent(GameEvent event)
 {
-	for (int i = 0; i < MAX_ITEM; ++i)
+	const wchar_t* command = nullptr;
+	switch (event)
 	{
-		items[i].active = FALSE;
-		items[i].x = 0;
-		items[i].y = 0;
-		items[i].size = 100.0f;
-		items[i].type = ITEM_HEAL;
+	case GameEvent::BossHit: command = L"play hitSound from 0"; break;
+	case GameEvent::PlayerHit: command = L"play hurtSound from 0"; break;
+	case GameEvent::Revived: command = L"play reviveSound from 0"; break;
+	case GameEvent::Healed: command = L"play healSound from 0"; break;
+	case GameEvent::SpeedStarted: command = L"play speedSound from 0"; break;
+	case GameEvent::Poisoned: command = L"play posionSound from 0"; break;
+	case GameEvent::FogStarted: command = L"play fogSound from 0"; break;
+	case GameEvent::MeteorStarted: command = L"play meteorSound from 0"; break;
+	case GameEvent::SpeedEnded: command = L"stop speedSound"; break;
+	case GameEvent::FogEnded: command = L"stop fogSound"; break;
 	}
+	if (command)
+		mciSendString(command, NULL, 0, NULL);
 }
-// 아이템 생성
-void Spawn_Item()
-{
-	for (int i = 0; i < MAX_ITEM; ++i)
-	{
-		if (!items[i].active && !itemEffects[i].active)
-		{
-			float x = (float)(rand() % (client.right - 50));
-			float y = (float)(rand() % (client.bottom - 100));
-
-			// 아이템에 위치만 저장
-			items[i].x = x;
-			items[i].y = y;
-			items[i].size = 100.0f;
-			items[i].active = FALSE;
-
-			int probability = rand() % 100;
-			if (probability < 20) { items[i].type = ITEM_HEAL; }
-			else if (probability < 45) { items[i].type = ITEM_SPEED; }
-			else if (probability < 50) { items[i].type = ITEM_REBIRTH; }
-			else if (probability < 85) { items[i].type = ITEM_POSION; }
-			else items[i].type = ITEM_FOG;
-
-			// 이펙트 활성화
-			itemEffects[i].x = x;
-			itemEffects[i].y = y;
-			itemEffects[i].active = TRUE;
-			itemEffects[i].animation_count = 0;
-			itemEffects[i].duration = 30; // 3초
-
-
-			break;
-		}
-	}
-}
-// 아이템 이동 및 제거
-void Update_Items()
-{
-	const float item_fall_speed = 2.0f;
-
-	for (int i = 0; i < MAX_ITEM; ++i)
-	{
-		if (!items[i].active)
-		{
-			continue;
-		}
-
-		// 아이템은 화면 스크롤 되는 방향(위에서 아래로) 이동하게 했어요!
-		items[i].y += item_fall_speed * OBJECT_MOVE_RATIO;
-
-		// 화면 밖으로 나가면 비활성
-		if (items[i].y > client.bottom)
-		{
-			items[i].active = FALSE;
-		}
-	}
-}
-
-// 아이템 먹고 화면 위 표시 기능
-bool is_speed_active = FALSE;
-bool is_fog_active = FALSE;
-bool is_rebirth_ready = FALSE;
-
-int fog_alpha = 0;
-bool fog_fade_in = FALSE;
-bool fog_fade_out = FALSE;
-int Apply_Item_Effect(ItemType type)
-{
-	switch (type)
-	{
-	case ITEM_HEAL:
-	{
-		if (player.hp < 10)
-		{
-			player.hp += 2;
-		}
-		mciSendString(L"play healSound from 0", NULL, 0, NULL);
-	}
-	break;
-
-	case ITEM_SPEED:
-	{
-		player_speed = 12.5f;
-		speed_up_timer = 50;
-		is_speed_active = TRUE;
-		mciSendString(L"play speedSound from 0", NULL, 0, NULL);
-	}
-	break;
-
-	case ITEM_POSION:
-	{
-		player.hp -= 2;
-		if (player.hp <= 0 && !has_rebirth)
-		{
-			return 1;
-		}
-		mciSendString(L"play posionSound from 0", NULL, 0, NULL);
-	}
-	break;
-	case ITEM_FOG:
-	{
-		fog_fade_in = TRUE;
-		fog_alpha = 0;
-		fog_timer = 50;
-		is_fog_active = TRUE;
-		mciSendString(L"play fogSound from 0", NULL, 0, NULL);
-	}
-	break;
-	case ITEM_REBIRTH:
-	{
-		has_rebirth = TRUE;
-		is_rebirth_ready = TRUE;
-		mciSendString(L"play healSound from 0", NULL, 0, NULL);
-	}
-	break;
-	}
-	return 0;
-}
-
-
-// 플레이어가 아이템 먹음
-int Check_Item_Player_Collision()
-{
-
-	for (int i = 0; i < MAX_ITEM; ++i)
-	{
-		if (!items[i].active)
-		{
-			continue;
-		}
-
-		RECT item_rect = { (int)items[i].x, (int)items[i].y, (int)(items[i].x + items[i].size), (int)(items[i].y + items[i].size) };
-
-		int margin = 10;	// 플레이어가 아이템 가까이서 먹을 수 있게 하기 위한 여유 공간
-		RECT player_rect = { player.x + margin, player.y + margin, player.x + player.size - margin, player.y + player.size - margin };
-
-		RECT intersect;
-
-		// 아이템 먹으면
-		if (IntersectRect(&intersect, &item_rect, &player_rect))
-		{
-			int gameover = Apply_Item_Effect(items[i].type);
-			items[i].active = false;
-			IsGetItem = true;
-			score += 30;
-
-			if (gameover == 1)
-			{
-				return 1;  // 게임오버 신호 반환
-			}
-		}
-	}
-	return 0;
-}
-
-
-
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -790,15 +322,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 	static bool bGameOver; // 게임종료
 	static bool bGameClear; // 보스 쓰러뜨리며 게임종료
 
-	static float GameTime;
-	static int redcircleCounter; // 보스가 빨간원을 발사하는 시계
-	static int meteorCounter; // 운석 생성 시계
-
-	static float item_counter;	// 아이템 생성 시계
-
-	static int blinkCnt; // 플레이어 깜빡거림 시계
-
-	static int reviveCnt; // 부활시계
+	static GameState gameState{};
 
 	switch (iMessage) {
 	case WM_ERASEBKGND:
@@ -808,6 +332,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 	case WM_CREATE: {
 		srand((unsigned)time(NULL));
 		GetClientRect(hWnd, &client);
+		ResetGame(gameState, {client.left, client.top, client.right, client.bottom});
 
 		// 게임 시작화면 배경음악
 		PlaySound(Assets::startscreen_bgm().c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
@@ -857,15 +382,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		playerImage.Load(Assets::playerImage().c_str());
 		playerImageX = playerImage.GetWidth();
 		playerImageY = playerImage.GetHeight();
-		// 플레이어 구조체 초기화
-		player.size = 100;
-		player.x = client.right / 2 - 50; player.y = client.bottom - 150; // 
-		player.hp = 10;
-		player.revive = false;
-		player.reviveAnimation = 0;
-		// 플레이어 속도 관련
-		player_speed = 5.0f;
-		speed_up_timer = 0;
 
 		// 적 이미지 정보 가져오기
 		enemyImage.Load(Assets::enemyImage().c_str());
@@ -874,15 +390,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 		enemyImageX = enemyImage.GetWidth();
 		enemyImageY = enemyImage.GetHeight();
-		// 적 구조체 초기화
-		enemy.size = 100;
-		enemy.x = client.right / 2 - player.size; enemy.y = client.top + 30;
-		enemy.speed = 3.0;
-		float angle = (float)(rand() % 360) * PIE / 180.0;
-		enemy.dx = cos(angle); enemy.dy = sin(angle);
-		enemy.hp = 300;
-		enemy.directionChangeCounter = 0;
-
 
 		// 총알 이미지 정보 가져오기
 		bulletImage.Load(Assets::bulletImage().c_str());
@@ -894,17 +401,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		explosionImage[3].Load(Assets::Hit_1_0004().c_str());
 		explosionImageX = explosionImage[0].GetWidth();  explosionImageY = explosionImage[0].GetHeight();
 
-		// 총알 구조체 초기화
-		for (int i = 0; i < MAX_BULLET; ++i)
-		{
-			bullet[i].size = 30;
-			bullet[i].speed = 1.0;
-			bullet[i].x = player.x + player.size / 2 - 10;
-			bullet[i].y = player.y;
-			bullet[i].active = false;
-			bullet[i].explosion = false;
-
-		}
 
 		// 플레이어 폭발충돌 이미지 로드
 		playerExplo[0].Load(Assets::Explosion_1_0001().c_str());
@@ -916,33 +412,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		// 장애물(빨간원) 이미지 정보 가져오기
 		redcircleImage.Load(Assets::redcircle().c_str());
 		redcircleImageW = redcircleImage.GetWidth(), redcircleImageH = redcircleImage.GetHeight();
-		// 장애물(빨간원) 구조체 초기화
-		for (int i = 0; i < MAX_REDCIRCLE; ++i)
-		{
-			redcircle[i].size = 30.0;
-			redcircle[i].x = enemy.x + enemy.size / 2;
-			redcircle[i].y = enemy.y + enemy.size;
-			redcircle[i].speed = 3.0;
-			redcircle[i].active = false;
-		}
 
 		// 운석 이미지 정보 가져오기
 		meteorImage[0].Load(Assets::meteor1().c_str());
 		meteorImage[1].Load(Assets::meteor2().c_str());
 		meteorImage[2].Load(Assets::meteor3().c_str());
 		meteorImageW = meteorImage[0].GetWidth(), meteorImageH = meteorImage[0].GetHeight();
-		// 운석 구조체 초기화
-		meteor.size = 150.0;
-		meteor.y = 0.0;
-		meteor.lineActive = false;
-		meteor.meteorActive = false;
-		meteor.animationCnt = 0;
-
-		meteor.lineY = 0;
-		meteor.delayCnt = 0;
-
-		meteor.explosion = false;
-
 
 		// 아이템 슬롯 이미지 로드
 		ItemSlotImage.Load(Assets::Itemslot().c_str());
@@ -974,41 +449,39 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		reviveImageW = reviveImage[0].GetWidth(), reviveImageH = reviveImage[0].GetHeight();
 
 
-
 		// 안개 관련
 		fogImage.Load(Assets::fogImage().c_str());
 		fog_image_W = fogImage.GetWidth(), fog_image_H = fogImage.GetHeight();
-		fog_active = FALSE;
-		fog_timer = 0;
 
 		// 게임시작 전 화면 //////////////////////////////////
 		bGameStart = false;
 		startBox = { client.right / 2 - 150, client.bottom / 2 - 10, client.right / 2 + 150, client.bottom / 2 + 50 };
 		//////////////////////////////////////////////////////
-		GameTime = 0.0;
-		redcircleCounter = 0;
-		meteorCounter = 0;
 		bGamePause = false;
 		bGameOver = false;
 		bGameClear = false;
 
-		IsGetItem = false;
-		blinkCnt = 0;
 		// 배경 초기화
 		current_back = 0;
 		background_changed = FALSE;
 
-		Init_Items();
 
 		break;
 	}
 	case WM_PAINT:
 	{
+		const PlayerState& player = gameState.players[0];
+		const Enemy& enemy = gameState.enemy;
+		const auto& bullet = gameState.bullets;
+		const auto& redcircle = gameState.redCircles;
+		const Meteor& meteor = gameState.meteor;
+		const auto& items = gameState.items;
+		const auto& itemEffects = gameState.itemEffects;
+
 		hdc = BeginPaint(hWnd, &ps);
 		mdc = CreateCompatibleDC(hdc); // 더블버퍼링을 위한 메모리디시 생성
 		hBitmap = CreateCompatibleBitmap(hdc, client.right, client.bottom); // 더블버퍼링을 위한 비트맵 생성
 		HBITMAP oldBitmap = (HBITMAP)SelectObject(mdc, (HBITMAP)hBitmap);
-
 
 
 		// 플레이어와 보스 이동범위 제한 표시 ( 경계 확인할려고 임의로 그려뒀습니다 )
@@ -1019,9 +492,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			CImage& resultImage = bGameClear ? GameClearBGImage : GameOverImage;
 
 			render.DrawResultScreen(mdc, client.right, client.bottom,
-				GameEndBGImage, resultImage, GameTime, score);
+				GameEndBGImage, resultImage, gameState.playTime, player.score);
 		}
-
 
 
 		if (bGameStart == false && bGameOver == false) // 게임 시작 전 화면
@@ -1041,7 +513,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			render.DrawSprite(mdc, ItemSlotImage,
 				0, client.bottom - 100, 100, 100, ItemSlotImageW, ItemSlotImageH);
 
-			if (has_rebirth)
+			if (player.hasRebirth)
 			{
 				render.DrawSprite(mdc, itemImages[ITEM_REBIRTH],
 					0, client.bottom - 100, 100, 100,
@@ -1062,11 +534,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			///////////////////////////////////////////
 
 
-
-
 			// 플레이어 출력
 			// 아이템을 먹은 동안에는 짝수 프레임에서만 캐릭터를 표시합니다.
-			const bool showPlayerSprite = !IsGetItem || blinkCnt % 2 == 0;
+			const bool showPlayerSprite = !player.blinking || player.blinkTicks % 2 == 0;
 
 			render.DrawPlayer(mdc, playerImage,
 				player.x, player.y, player.size, player.hp, showPlayerSprite);
@@ -1141,7 +611,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			}
 
 			// 아이템이 나타나기 전 효과
-			for (int i = 0; i < MAX_ITEM_EFFECT; ++i)
+			for (int i = 0; i < MAX_ITEM; ++i)
 			{
 				if (!itemEffects[i].active)
 					continue;
@@ -1172,10 +642,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			}
 
 
-			if (fog_alpha > 0)
+			if (gameState.fogAlpha > 0)
 			{
 				render.DrawFog(mdc, fogImage, client.right, client.bottom,
-					static_cast<BYTE>(fog_alpha));
+					static_cast<BYTE>(gameState.fogAlpha));
 			}
 
 			if (fade_alpha > 0 && !background_changed)
@@ -1189,7 +659,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			int iconX = client.right - iconSize - spacing;
 			const int iconY = 10;
 
-			if (is_fog_active)
+			if (gameState.fogActive)
 			{
 				// 보스 영역을 가리는 구름을 먼저 그립니다.
 				render.DrawSprite(mdc, itemImages[ITEM_FOG],
@@ -1203,7 +673,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 				iconX -= iconSize + spacing;
 			}
 
-			if (is_speed_active)
+			if (player.speedTicks > 0)
 			{
 				render.DrawStatusIcon(mdc, itemImages[ITEM_SPEED],
 					iconX, iconY, iconSize,
@@ -1263,71 +733,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 				SetTimer(hWnd, 2, 17, NULL);
 				SetTimer(hWnd, 3, 100, NULL);
 
-				// 3) 주요 카운터/플래그 초기화
-				GameTime = 0.0f;
-				redcircleCounter = 0;
-				meteorCounter = 0;
-				item_counter = 0.0f;
-				speed_up_timer = 0;
-				fog_active = FALSE;
-				fog_timer = 0;
-				has_rebirth = FALSE;
-				IsGetItem = false;
-				blinkCnt = 0;
-				reviveCnt = 0;
-				score = 0;
-				GameTime = 0.0f;
-
-				// 4) 플레이어 초기화
-				player.hp = 10;
-				player.x = client.right / 2 - player.size / 2;
-				player.y = client.bottom - 150;
-				player.revive = false;
-				player.reviveAnimation = 0;
-
-				// 5) 보스 초기화
-				enemy.hp = 300;
-				enemy.x = client.right / 2 - player.size;
-				enemy.y = client.top + 30;
-				{
-					float angle = (float)(rand() % 360) * PIE / 180.0f;
-					enemy.dx = cosf(angle);
-					enemy.dy = sinf(angle);
-				}
-				enemy.directionChangeCounter = 0;
-
-				// 6) 총알 초기화
-				bulletCnt = 0;
-				for (int i = 0; i < MAX_BULLET; ++i)
-				{
-					bullet[i].active = false;
-					bullet[i].explosion = false;
-					bullet[i].explosionCnt = 0;
-				}
-
-				// 7) 빨간원(Obstacle) 초기화
-				for (int i = 0; i < MAX_REDCIRCLE; ++i)
-				{
-					redcircle[i].active = false;
-					redcircle[i].explosion = false;
-					redcircle[i].explosionCnt = 0;
-				}
-
-				// 8) 운석 장애물 초기화
-				meteor.lineActive = false;
-				meteor.meteorActive = false;
-				meteor.lineY = 0;
-				meteor.y = 0;
-				meteor.delayCnt = 0;
-				meteor.animationCnt = 0;
-				meteor.explosion = false;
-				meteor.explosionCnt = 0;
-
-				// 9) 아이템 초기화
-				for (int i = 0; i < MAX_ITEM; ++i)
-					items[i].active = false;
-
-				// 10) 화면 즉시 갱신
+				ResetGame(gameState, {client.left, client.top, client.right, client.bottom});
+				back_scrollY = 0.0f;
 
 				background_changed = FALSE;
 				start_fade = FALSE;
@@ -1384,47 +791,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			input.Reset();
 			break;
 		}
+		const GameBounds bounds{client.left, client.top, client.right, client.bottom};
 		switch (wParam)
 		{
-		case 1: { // 입력 명령을 받아 플레이어 이동과 발사 처리
-
-			//int move = 5; // 5만큼 플레이어 이동 ( 플레이어 이동 예외처리완료 )
-			// 속도 조절 아이템을 위해서 move 가 아니라 전역으로 player_speed 변수를 설정하였습니다!
-			const InputCommand command = input.ConsumeCommand();
-
-			MovePlayer(player.x, player.y, player.size, player_speed,
-				command, client.left, client.right, 150, client.bottom);
-
-			// 총알 위치 최신화 => 플레이어 위치에 의존
-			if (UpdatePlayerFire(bullet, bulletCnt,
-				player.x, player.y, player.size, command.firePressed))
-			{
+		case 1:
+			if (UpdatePlayer(gameState, bounds, input.ConsumeCommand()))
 				mciSendString(L"play shotSound from 0", NULL, 0, NULL);
-			}
 			break;
-		}
-		case 2: { // 나머지 이동 및 충돌처리 타이머
+		case 2:
+		{
+			const WorldStep step = UpdateWorld(gameState, bounds);
+			for (GameEvent event : step.events)
+				PlayGameEvent(event);
 
-			MoveEnemy(); // 적 
-			MoveBullets(bullet, OBJECT_MOVE_RATIO);
-			MoveRedCircle(); // 장애물(빨간원) 이동
-			MoveMeteor();
-
-			const BulletHitResult hit = CheckEnemyBulletCollision(
-				bullet, enemy.x, enemy.y, enemy.size, enemy.hp, score);
-
-			if (hit.hit)
-				mciSendString(L"play hitSound from 0", NULL, 0, NULL);
-
-			const int gameend = hit.defeated ? 1 : 0;
-			
-			int gameover = CheckRedcirclePlayerCollision(); // 장애물(빨간원) 플레이어 충돌처리
-			int gameover2 = CheckMeteorPlayerCollision();
-			int gameover3 = Check_Item_Player_Collision();
-			if (gameover == 1 || gameover2 == 1 || gameover3 == 1 || gameend == 1) // 게임종료 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			if (step.outcome != RoundOutcome::Running)
 			{
-				if (gameend == 1)
-					bGameClear = true; // 보스 쓰러뜨리며 게임 종료
+				bGameClear = step.outcome == RoundOutcome::Won;
 				input.Reset();
 				bGameOver = true;
 				KillTimer(hWnd, 1);
@@ -1443,7 +825,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 				mciSendString(L"stop meteorSound", NULL, 0, NULL);
 				mciSendString(L"stop fogSound", NULL, 0, NULL);
 
-				if (gameend == 1)
+				if (bGameClear)
 				{
 					mciSendString(L"play winSound from 0", NULL, 0, NULL);
 				}
@@ -1454,10 +836,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 				break;
 			}
 
-			Update_Items();	// 아이템 이동과 제거
-			Check_Item_Player_Collision();
-
-			Change_Background_Fade(hWnd);
+			Change_Background_Fade(gameState.enemy.hp);
 			// 위에서 아래로
 			back_scrollY += back_scroll_speed * OBJECT_MOVE_RATIO;
 			if (back_scrollY >= back[current_back].GetHeight())
@@ -1466,141 +845,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 		}
-		case 3: // 각종 시간주기 계산용
-		{
-			GameTime += 0.1; // 게임시간
-
-			// 빨간원 장애물
-			redcircleCounter++;
-			if (redcircleCounter == 10)
-			{
-				SpawnRedcircle();
-				redcircleCounter = 0;
-			}
-
-			// 운석 장애물
-			if (enemy.hp <= 200)
-			{
-				if (meteor.lineActive == false)
-				{
-					meteorCounter++;
-					if (meteorCounter >= 10) // 1초
-					{
-						meteor.lineActive = true;
-						meteor.x = 10 + (rand() % (client.right - 100));
-						meteorCounter = 0;
-					}
-				}
-			}
-
-			if (meteor.lineActive) // 빨간선 그려지고 다 그려지면 운석생성이동
-			{
-				meteor.lineY += 30;
-
-				if (meteor.lineY >= client.bottom)
-				{
-					meteor.meteorActive = true;
-					mciSendString(L"play meteorSound from 0", NULL, 0, NULL);
-				}
-			}
-
-			// 아이템 생성 전 이펙트
-			for (int i = 0; i < MAX_ITEM_EFFECT; ++i)
-			{
-				if (itemEffects[i].active)
-				{
-					itemEffects[i].animation_count++;
-					if (itemEffects[i].animation_count >= itemEffects[i].duration)
-					{
-						// 이펙트 끝나면 아이템 활성화
-						itemEffects[i].active = false;
-						items[i].active = TRUE;
-					}
-				}
-			}
-
-
-			// 아이템 생성
-			item_counter++;
-			if (item_counter == 60)	// 6초
-			{
-				Spawn_Item();
-				item_counter = 0;
-			}
-
-			if (speed_up_timer > 0)
-			{
-				speed_up_timer--;
-				if (speed_up_timer == 0)
-				{
-					player_speed = 5.0f;	// 원래 속도로 복원
-					is_speed_active = FALSE;
-
-					mciSendString(L"stop speedSound", NULL, 0, NULL);
-				}
-			}
-
-			if (fog_fade_in)
-			{
-				fog_alpha += 10;
-				if (fog_alpha >= 255)
-				{
-					fog_alpha = 255;
-					fog_fade_in = FALSE;
-				}
-			}
-			else if (fog_timer > 0)
-			{
-				fog_timer--;
-				if (fog_timer == 0)
-				{
-					fog_fade_out = TRUE;
-
-					mciSendString(L"stop fogSound", NULL, 0, NULL);
-				}
-			}
-			else if (fog_fade_out)
-			{
-				fog_alpha -= 10;
-				if (fog_alpha <= 0)
-				{
-					fog_alpha = 0;
-					fog_fade_out = FALSE;
-					is_fog_active = FALSE;
-				}
-			}
-
-			playerExplosion(); // 플레이어 충돌폭발 ( 좀 느린 애니메이션을 위해 여기에다가 넣었습니다 )
-
-			// 아이템 먹을시 플레이어 깜빡거림
-			if (IsGetItem)
-			{
-				blinkCnt++;
-				if (blinkCnt == 30) // 3초간 깜빡거림
-				{
-					IsGetItem = false;
-					blinkCnt = 0;
-				}
-			}
-
-			if (player.revive)
-			{
-				reviveCnt++;
-				if (reviveCnt == 2)
-				{
-					player.reviveAnimation++;
-					reviveCnt = 0;
-				}
-				if (player.reviveAnimation == 3)
-				{
-					player.revive = false;
-					player.reviveAnimation = 0;
-					reviveCnt = 0;
-				}
-			}
-
+		case 3:
+			for (GameEvent event : UpdateGameClock(gameState, bounds))
+				PlayGameEvent(event);
 			break;
-		}
 		}
 		break;
 	}
