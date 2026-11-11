@@ -1,4 +1,6 @@
-﻿#include "Assets.h"
+﻿#include "Client/ClientNetwork.h"
+
+#include "Assets.h"
 #include <tchar.h>
 #include <time.h>
 #include <stdbool.h>
@@ -93,6 +95,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		0, 0, 800, 700, NULL, (HMENU)NULL, hInstance, NULL);
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
+
+	// 11.11
+	ClientNetwork network;
+	if (network.Connect("127.0.0.1", 9000))
+	{
+		OutputDebugStringW(L"[TCP 클라이언트] TCP 연결 성공\n");
+	}
+	else
+	{
+		OutputDebugStringW(L"[TCP 클라이언트] TCP 연결 실패\n");
+	}
+
 	// Rendering has its own 60 Hz clock. Gameplay timers remain unchanged.
 	LARGE_INTEGER frequency, now;
 	QueryPerformanceFrequency(&frequency);
