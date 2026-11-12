@@ -49,7 +49,8 @@ public:
 
     // 시작화면
     void DrawStartScreen(HDC dc, int width, int height,
-        CImage& background, CImage& title, CImage& startButton);
+        CImage& background, CImage& title, CImage& startButton,
+        CImage& emptySlot);
 
     // 결과화면
     void DrawResultScreen(HDC dc, int width, int height,

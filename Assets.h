@@ -77,5 +77,10 @@ inline std::wstring startscreen_bgm() { return Path(L"sounds\\startscreen_bgm.wa
 inline std::wstring text() { return Path(L"images\\text.png"); }
 inline std::wstring win() { return Path(L"sounds\\win.wav"); }
 inline std::wstring youwin() { return Path(L"images\\youwin.png"); }
+
+// 서버클라 구현하며 추가한 리소스
+inline std::wstring playerNone() { return Path(L"images\\player_none.png"); }
+inline std::wstring playerReady(){ return Path(L"images\\player_ready.png"); }
+
 }
 

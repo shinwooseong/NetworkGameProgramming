@@ -236,7 +236,8 @@ void Render::DrawPause(HDC dc, int width, int height)
 
 
 void Render::DrawStartScreen(HDC dc, int width, int height,
-    CImage& background, CImage& title, CImage& startButton)
+    CImage& background, CImage& title, CImage& startButton,
+    CImage& emptySlot)
 {
     const int centerX = width / 2;
     const int centerY = height / 2;
@@ -264,6 +265,28 @@ void Render::DrawStartScreen(HDC dc, int width, int height,
     const COLORREF oldColor = SetTextColor(dc, RGB(255, 255, 255));
 
     TextOutW(dc, centerX - 100, centerY - 100, message, lstrlenW(message));
+
+    const wchar_t* slotLabels[] = {L"PLAYER 1", L"PLAYER 2"};
+    const int slotCenters[] = {centerX - 70, centerX + 70};
+    constexpr int slotSize = 64;
+    const int slotTop = centerY + 120;
+
+    SetTextColor(dc, RGB(0, 0, 0));
+    
+    
+    for (int i = 0; i < 2; ++i)
+    {
+        const int slotX = slotCenters[i];
+        if (!emptySlot.IsNull())
+        {
+            DrawSprite(dc, emptySlot, slotX - slotSize / 2, slotTop,
+                slotSize, slotSize, emptySlot.GetWidth(), emptySlot.GetHeight());
+        }
+
+        RECT label = {slotX - 64, slotTop + slotSize + 4,
+            slotX + 64, slotTop + slotSize + 24};
+        DrawTextW(dc, slotLabels[i], -1, &label, DT_CENTER | DT_SINGLELINE);
+    }
 
     SetTextColor(dc, oldColor);
     SetBkMode(dc, oldMode);

@@ -178,6 +178,8 @@ CImage GameClearBGImage;
 int GameClearBGImageW, GameClearBGImageH;
 
 CImage GameStartImage;
+CImage EmptyPlayerSlotImage;		 // 플레이어 접속 전 이미지.
+CImage ReadyPlayerSlotImage;		 // 플레이어 접속 후 이미지
 int startImageW, startImageH;
 
 CImage GameOverImage;
@@ -361,6 +363,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		GameStartBGImageW = GameStartBGImage.GetWidth(), GameStartBGImageH = GameStartBGImage.GetHeight();
 
 		GameStartImage.Load(Assets::gamestart().c_str());
+		EmptyPlayerSlotImage.Load(Assets::playerNone().c_str());
+		ReadyPlayerSlotImage.Load(Assets::playerReady().c_str());
 		startImageW = GameStartImage.GetWidth(), startImageH = GameStartImage.GetHeight();
 
 		// 게임 앤드 배경이미지
@@ -499,7 +503,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		if (bGameStart == false && bGameOver == false) // 게임 시작 전 화면
 		{
 			render.DrawStartScreen(mdc, client.right, client.bottom,
-				GameStartBGImage, TextImage, GameStartImage);
+				GameStartBGImage, TextImage, GameStartImage, EmptyPlayerSlotImage);
 		}
 		else if (bGameStart && bGameOver == false) // 게임 시작 후 화면
 		{
@@ -876,6 +880,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		bulletImage.Destroy();
 		GameStartBGImage.Destroy();
 		GameStartImage.Destroy();
+		EmptyPlayerSlotImage.Destroy();
+		ReadyPlayerSlotImage.Destroy();
 		GameEndBGImage.Destroy();
 		GameOverImage.Destroy();
 		TextImage.Destroy();
