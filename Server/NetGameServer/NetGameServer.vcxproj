@@ -141,9 +141,11 @@
   <ItemGroup>
     <ClCompile Include="GameCommandQueue.cpp" />
     <ClCompile Include="NetGameServer.cpp" />
+    <ClCompile Include="SendCommandQueue.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GameCommandQueue.h" />
+    <ClInclude Include="SendCommandQueue.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

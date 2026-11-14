@@ -7,15 +7,18 @@
 #include <thread>
 #include <functional> // std::ref() 참조로 전달
 
+
 #include "GameCommandQueue.h"
+#include "SendCommandQueue.h"
 
 #define SERVERPORT 9000
 #define BUFSIZE    1024
 
 // 스레드
 void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& queue);
-void GameLoop(std::stop_token stop, GameCommandQueue& queue);
+void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueue& sendQueue);
 void SendLoop(std::stop_token stop);
+
 
 int main()
 {
@@ -49,11 +52,12 @@ int main()
 	int addrlen;
 	HANDLE hThread;
 
-    GameCommandQueue queue; // 두 스레드가 사용할 큐
+    GameCommandQueue gameQueue; // 두 스레드가 사용할 큐
+    SendCommandQueue sendQueue; // 게임 연산에서 송신으로 전달할 명령 큐
 
 	// 스레드
-	std::jthread receiveThread(ReceiveLoop, listen_sock, std::ref(queue));
-	std::jthread gameThread(GameLoop, std::ref(queue));
+	std::jthread receiveThread(ReceiveLoop, listen_sock, std::ref(gameQueue));
+	std::jthread gameThread(GameLoop, std::ref(gameQueue), std::ref(sendQueue));
 	//std::jthread sendThread(SendLoop);
 
 	std::cout << "Press Enter to stop the server.\n";
@@ -74,7 +78,8 @@ int main()
 void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& queue)
 {
     // 플레이어 둘
-    SOCKET clients[2] = { INVALID_SOCKET, INVALID_SOCKET }; // 클라이언트 통신 소켓
+    //SOCKET clients[2] = { INVALID_SOCKET, INVALID_SOCKET }; // 클라이언트 통신 소켓
+    std::array<std::shared_ptr<ClientSession>, 2> clients{}; // 수신 스레드의 연결 목록
     char buffer[BUFSIZE];
 
     while (!stop.stop_requested()) // 종료 요청이 오기 전까지 계속 반복
@@ -84,10 +89,16 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
         FD_ZERO(&readable);             // 목록 비우기
         FD_SET(listenSocket, &readable);// 접속 대기 소켓을 목록에 추가
 
-        for (SOCKET client : clients)   // 소켓을 하나씩 꺼내서 목록에 추가
+        //for (SOCKET client : clients)   // 소켓을 하나씩 꺼내서 목록에 추가
+        //{
+        //    if (client != INVALID_SOCKET)
+        //        FD_SET(client, &readable);
+        //}
+
+        for (const auto& session : clients)
         {
-            if (client != INVALID_SOCKET)
-                FD_SET(client, &readable);
+            if (session)
+                FD_SET(session->socket, &readable); // 접속 세션의 소켓 등록
         }
 
         timeval timeout{ 0, 100000 }; // 최대 100ms 대기
@@ -104,12 +115,11 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
         // 1. 기존 클라이언트가 보낸 데이터나 연결 종료를 처리
         for (int slot = 0; slot < 2; ++slot)
         {
-            SOCKET& client = clients[slot]; // 배열의 원래 자리를 참조
+            auto& session = clients[slot]; // 배열에 저장된 세션 참조
 
-            if (client == INVALID_SOCKET || !FD_ISSET(client, &readable)) // 소켓이 빔 or select()가 돌려준 목록에 소켓이 없는지
+            if (!session || !FD_ISSET(session->socket, &readable)) // 빈자리 또는 읽기 대기 소켓 제외
                 continue;
-
-            int received = recv(client, buffer, sizeof(buffer), 0); // 수신
+            const int received = recv(session->socket, buffer, sizeof(buffer), 0); // 수신
 
             if (received > 0)
             {
@@ -127,9 +137,9 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
                 std::printf("recv 실패: %d\n", error);
             }
 
-            closesocket(client);                              // 끊긴 소켓 닫기
-            client = INVALID_SOCKET;                          // 배열에서 그 자리 비우기
-            queue.Push({ CommandType::Disconnected, slot });    // 어느 자리가 비었는지 알림
+            closesocket(session->socket);              // 끊긴 소켓 닫기
+            queue.Push({ CommandType::Disconnected, slot, session });  // 어느 자리가 비었는지 알림
+            session.reset();                                  // 수신 목록의 슬롯 해제
         }
 
         // 2. 대기 중인 새 연결을 받아 빈 자리에 보관해.
@@ -144,42 +154,97 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
                 continue;
             }
 
-            int slot = clients[0] == INVALID_SOCKET ? 0 : 1; // 소켓이 비어있으면 0, 차 있으면 1
-            if (clients[slot] != INVALID_SOCKET)
+            const int slot = !clients[0] ? 0 : 1; // 소켓이 비어있으면 0, 차 있으면 1
+            if (clients[slot])
             {
                 closesocket(client); // 두 자리가 모두 차 있음
                 continue;
             }
 
-            clients[slot] = client; // 새 소켓 저장
-            queue.Push({ CommandType::Connected, slot });    // 어느 자리에 연결됐는지 알림
+            clients[slot] = std::make_shared<ClientSession>(client); // 새 소켓 저장
+            queue.Push({ CommandType::Connected, slot, clients[slot]});    // 어느 자리에 연결됐는지 알림
             std::printf("Client 연결, 플레이어 %d\n", slot + 1);
         }
     }
 
     // 소켓 닫기
-    for (SOCKET client : clients)
+    for (auto& session : clients)
     {
-        if (client != INVALID_SOCKET)
-            closesocket(client);
+        if (!session)
+            continue; // 빈 슬롯 제외
+
+        closesocket(session->socket);
+        session.reset();                    // 수신 목록의 세션 참조 해제
     }
 }
 
-void GameLoop(std::stop_token stop, GameCommandQueue& queue)
+void QueueLobbyState(const std::array<std::shared_ptr<ClientSession>, 2>& sessions, int hostPlayerNumber, SendCommandQueue& sendQueue)
 {
+    for (int i = 0; i < 2; ++i) // 두 슬롯 순회
+    {
+        if (!sessions[i])
+            continue; // 빈 슬롯 제외
+
+        LobbyPacket packet{
+            LobbyStateType,                                     // 메시지 종류
+            static_cast<std::uint8_t>(i + 1),                   // 수신자의 플레이어 번호
+            static_cast<std::uint8_t>(hostPlayerNumber),        // 현재 방장 번호
+            static_cast<std::uint8_t>(sessions[0] != nullptr),  // 1번 접속 여부
+            static_cast<std::uint8_t>(sessions[1] != nullptr)   // 2번 접속 여부
+        };
+
+        sendQueue.Push({ sessions[i], packet }); // 대상 연결과 패킷의 송신 큐 등록
+    }
+}
+
+void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueue& sendQueue)
+{
+    std::array<std::shared_ptr<ClientSession>, 2> sessions{};   // 대기방 슬롯 두 자리
+    int hostPlayerNumber = 0;                                   // 방장 미지정
     GameCommand command{}; // 큐에서 꺼낸 명령
 
-    while (queue.WaitPop(stop, command)) // 명령을 받을 때마다 반복
+    while (gameQueue.WaitPop(stop, command)) // 명령을 받을 때마다 반복
     {
+        const int slot = command.slot;        // 배열 인덱스 0 또는 1
+        const int playerNumber = slot + 1;   // 화면 표시 번호 1 또는 2
+
+        if (slot < 0 || slot >= static_cast<int>(sessions.size()) || !command.session)
+        {
+            continue; // 유효하지 않은 슬롯 또는 빈 세션 제외
+        }
+
         switch (command.type)           // 접속과 이탈을 구분
         {
         case CommandType::Connected:
+            if (sessions[slot])
+                continue; // 이미 사용 중인 슬롯 제외
+
+            sessions[slot] = command.session; // 대기방 슬롯에 새 세션 등록
+
+            if (hostPlayerNumber == 0)
+                hostPlayerNumber = playerNumber; // 방장이 없는 경우 새 방장 지정
+
             std::printf("[GameLoop] Slot %d 연결\n", command.slot + 1);
             break;                     // switch를 빠져나온 뒤 다음 명령을 기다려.
 
         case CommandType::Disconnected:
+            if (sessions[slot] != command.session)
+                continue; // 현재 슬롯과 일치하지 않는 이탈 명령 제외
+
+            sessions[slot].reset(); // 이탈한 슬롯의 세션 참조 해제
+
+            if (hostPlayerNumber == playerNumber)
+            {
+                const int otherSlot = 1 - slot; // 상대 슬롯 인덱스 계산
+                hostPlayerNumber = sessions[otherSlot] ? otherSlot + 1 : 0; // 방장 이전 또는 해제
+            }
             std::printf("[GameLoop] Slot %d 접속 종료\n", command.slot + 1);
             break;
         }
+
+        std::printf("[Lobby] P1:%c P2:%c 방장: P%d\n",
+            sessions[0] ? 'O' : 'X', sessions[1] ? 'O' : 'X', hostPlayerNumber);
+
+        QueueLobbyState(sessions, hostPlayerNumber, sendQueue); // 변경된 대기방 상태의 송신 예약
     }
 }
