@@ -5,13 +5,16 @@
 
 #include <stop_token>
 #include <thread>
+#include <functional> // std::ref() 참조로 전달
+
+#include "GameCommandQueue.h"
 
 #define SERVERPORT 9000
 #define BUFSIZE    1024
 
 // 스레드
-void ReceiveLoop(std::stop_token stop, SOCKET listenSocket);
-void GameLoop(std::stop_token stop);
+void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& queue);
+void GameLoop(std::stop_token stop, GameCommandQueue& queue);
 void SendLoop(std::stop_token stop);
 
 int main()
@@ -46,9 +49,11 @@ int main()
 	int addrlen;
 	HANDLE hThread;
 
+    GameCommandQueue queue; // 두 스레드가 사용할 큐
+
 	// 스레드
-	std::jthread receiveThread(ReceiveLoop, listen_sock);
-	//std::jthread gameThread(GameLoop);
+	std::jthread receiveThread(ReceiveLoop, listen_sock, std::ref(queue));
+	std::jthread gameThread(GameLoop, std::ref(queue));
 	//std::jthread sendThread(SendLoop);
 
 	std::cout << "Press Enter to stop the server.\n";
@@ -56,7 +61,7 @@ int main()
 
 	// 세 스레드에 모두 종료를 요청한 뒤 종료를 기다려.
 	receiveThread.request_stop();
-	//gameThread.request_stop();
+	gameThread.request_stop();
 	//sendThread.request_stop();
 
 	// 소켓 닫기
@@ -66,7 +71,7 @@ int main()
 	WSACleanup();
 }
 
-void ReceiveLoop(std::stop_token stop, SOCKET listenSocket)
+void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& queue)
 {
     // 플레이어 둘
     SOCKET clients[2] = { INVALID_SOCKET, INVALID_SOCKET }; // 클라이언트 통신 소켓
@@ -97,8 +102,10 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket)
             continue;
 
         // 1. 기존 클라이언트가 보낸 데이터나 연결 종료를 처리
-        for (SOCKET& client : clients)
+        for (int slot = 0; slot < 2; ++slot)
         {
+            SOCKET& client = clients[slot]; // 배열의 원래 자리를 참조
+
             if (client == INVALID_SOCKET || !FD_ISSET(client, &readable)) // 소켓이 빔 or select()가 돌려준 목록에 소켓이 없는지
                 continue;
 
@@ -120,11 +127,9 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket)
                 std::printf("recv 실패: %d\n", error);
             }
 
-            // received == 0이면 상대가 연결을 정상적으로 닫은 상태
-            closesocket(client);
-            client = INVALID_SOCKET; // 배열 비우기
-            std::printf("Client 연결 종료\n");
-            // 다음 단계: 게임 연산 큐에 이탈 알림 추가
+            closesocket(client);                              // 끊긴 소켓 닫기
+            client = INVALID_SOCKET;                          // 배열에서 그 자리 비우기
+            queue.Push({ CommandType::Disconnected, slot });    // 어느 자리가 비었는지 알림
         }
 
         // 2. 대기 중인 새 연결을 받아 빈 자리에 보관해.
@@ -147,8 +152,8 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket)
             }
 
             clients[slot] = client; // 새 소켓 저장
+            queue.Push({ CommandType::Connected, slot });    // 어느 자리에 연결됐는지 알림
             std::printf("Client 연결, 플레이어 %d\n", slot + 1);
-            // 다음 단계: 게임 연산 큐에 접속 알림 추가
         }
     }
 
@@ -157,5 +162,24 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket)
     {
         if (client != INVALID_SOCKET)
             closesocket(client);
+    }
+}
+
+void GameLoop(std::stop_token stop, GameCommandQueue& queue)
+{
+    GameCommand command{}; // 큐에서 꺼낸 명령
+
+    while (queue.WaitPop(stop, command)) // 명령을 받을 때마다 반복
+    {
+        switch (command.type)           // 접속과 이탈을 구분
+        {
+        case CommandType::Connected:
+            std::printf("[GameLoop] Slot %d 연결\n", command.slot + 1);
+            break;                     // switch를 빠져나온 뒤 다음 명령을 기다려.
+
+        case CommandType::Disconnected:
+            std::printf("[GameLoop] Slot %d 접속 종료\n", command.slot + 1);
+            break;
+        }
     }
 }

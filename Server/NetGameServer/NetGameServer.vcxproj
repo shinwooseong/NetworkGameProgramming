@@ -139,7 +139,11 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="GameCommandQueue.cpp" />
     <ClCompile Include="NetGameServer.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="GameCommandQueue.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
