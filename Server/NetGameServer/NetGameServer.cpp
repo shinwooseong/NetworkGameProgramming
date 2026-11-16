@@ -17,8 +17,7 @@
 // 스레드
 void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& queue);
 void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueue& sendQueue);
-void SendLoop(std::stop_token stop);
-
+void SendLoop(std::stop_token stop, SendCommandQueue& sendQueue);
 
 int main()
 {
@@ -58,7 +57,7 @@ int main()
 	// 스레드
 	std::jthread receiveThread(ReceiveLoop, listen_sock, std::ref(gameQueue));
 	std::jthread gameThread(GameLoop, std::ref(gameQueue), std::ref(sendQueue));
-	//std::jthread sendThread(SendLoop);
+	std::jthread sendThread(SendLoop, std::ref(sendQueue));
 
 	std::cout << "Press Enter to stop the server.\n";
 	std::cin.get();
@@ -66,13 +65,32 @@ int main()
 	// 세 스레드에 모두 종료를 요청한 뒤 종료를 기다려.
 	receiveThread.request_stop();
 	gameThread.request_stop();
-	//sendThread.request_stop();
+	sendThread.request_stop();
 
 	// 소켓 닫기
 	closesocket(listen_sock);
 
 	// 윈속 종료
 	WSACleanup();
+}
+
+void QueueLobbyState(const std::array<std::shared_ptr<ClientSession>, 2>& sessions, int hostPlayerNumber, SendCommandQueue& sendQueue)
+{
+    for (int i = 0; i < 2; ++i) // 두 슬롯 순회
+    {
+        if (!sessions[i])
+            continue; // 빈 슬롯 제외
+
+        Protocol::LobbyPacket packet{
+            Protocol::LobbyStateType,                           // 메시지 종류
+            static_cast<std::uint8_t>(i + 1),                   // 수신자의 플레이어 번호
+            static_cast<std::uint8_t>(hostPlayerNumber),        // 현재 방장 번호
+            static_cast<std::uint8_t>(sessions[0] != nullptr),  // 1번 접속 여부
+            static_cast<std::uint8_t>(sessions[1] != nullptr)   // 2번 접속 여부
+        };
+
+        sendQueue.Push({ sessions[i], packet }); // 대상 연결과 패킷의 송신 큐 등록
+    }
 }
 
 void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& queue)
@@ -88,12 +106,6 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
         fd_set readable;                // select()에 넘길 소켓 목록
         FD_ZERO(&readable);             // 목록 비우기
         FD_SET(listenSocket, &readable);// 접속 대기 소켓을 목록에 추가
-
-        //for (SOCKET client : clients)   // 소켓을 하나씩 꺼내서 목록에 추가
-        //{
-        //    if (client != INVALID_SOCKET)
-        //        FD_SET(client, &readable);
-        //}
 
         for (const auto& session : clients)
         {
@@ -173,27 +185,8 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
         if (!session)
             continue; // 빈 슬롯 제외
 
-        closesocket(session->socket);
+        shutdown(session->socket, SD_BOTH); // 연결의 송수신 중단
         session.reset();                    // 수신 목록의 세션 참조 해제
-    }
-}
-
-void QueueLobbyState(const std::array<std::shared_ptr<ClientSession>, 2>& sessions, int hostPlayerNumber, SendCommandQueue& sendQueue)
-{
-    for (int i = 0; i < 2; ++i) // 두 슬롯 순회
-    {
-        if (!sessions[i])
-            continue; // 빈 슬롯 제외
-
-        LobbyPacket packet{
-            LobbyStateType,                                     // 메시지 종류
-            static_cast<std::uint8_t>(i + 1),                   // 수신자의 플레이어 번호
-            static_cast<std::uint8_t>(hostPlayerNumber),        // 현재 방장 번호
-            static_cast<std::uint8_t>(sessions[0] != nullptr),  // 1번 접속 여부
-            static_cast<std::uint8_t>(sessions[1] != nullptr)   // 2번 접속 여부
-        };
-
-        sendQueue.Push({ sessions[i], packet }); // 대상 연결과 패킷의 송신 큐 등록
     }
 }
 
@@ -246,5 +239,53 @@ void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueu
             sessions[0] ? 'O' : 'X', sessions[1] ? 'O' : 'X', hostPlayerNumber);
 
         QueueLobbyState(sessions, hostPlayerNumber, sendQueue); // 변경된 대기방 상태의 송신 예약
+    }
+}
+
+void SendLoop(std::stop_token stop, SendCommandQueue& sendQueue)
+{
+    //using Clock = std::chrono::steady_clock; // 경과시간 측정용 시계
+    SendCommand command{};                  // 송신 큐에서 꺼낼 명령
+
+    while (!stop.stop_requested() && sendQueue.WaitPop(stop, command))
+    {
+        const SOCKET socket = command.target->socket; // 대상 세션의 소켓
+        const char* bytes =
+            reinterpret_cast<const char*>(command.packet.data()); // 패킷 시작 주소
+        const int length = static_cast<int>(command.packet.size()); // 전체 바이트 수
+        int sent = 0;                                               // 송신 완료 바이트 수
+        //const auto deadline = Clock::now() + std::chrono::seconds(1); // 송신 제한 시각
+
+        //while (sent < length && !stop.stop_requested() && Clock::now() < deadline)
+        while (sent < length && !stop.stop_requested())
+        {
+            const int result = send(socket, bytes + sent, length - sent, 0); // 남은 바이트 송신
+
+            if (result > 0)
+            {
+                sent += result; // 송신 완료 위치 갱신
+                continue;
+            }
+
+            if (result != SOCKET_ERROR)
+                break; // 송신 진행 불가
+
+            const int error = WSAGetLastError(); // 송신 오류 번호 조회
+            if (error != WSAEWOULDBLOCK)
+                break; // 재시도할 수 없는 오류
+
+            fd_set writable;
+            FD_ZERO(&writable);        // 쓰기 감시 목록 초기화
+            FD_SET(socket, &writable); // 대상 소켓 등록
+
+            timeval timeout{ 0, 50000 }; // 최대 50ms 대기
+            if (select(0, nullptr, &writable, nullptr, &timeout) == SOCKET_ERROR)
+                break; // 쓰기 감시 실패
+        }
+
+        if (sent != length)
+            shutdown(socket, SD_BOTH); // 미완료 패킷이 있는 연결의 송수신 중단
+
+        command = {}; // 처리한 명령의 세션 참조 해제
     }
 }

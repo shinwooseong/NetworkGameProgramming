@@ -1,5 +1,7 @@
 ﻿// 11.11 생성
 #pragma once
+#include <stop_token>
+#include <thread>
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32")
 
@@ -16,8 +18,9 @@ public:
     void Disconnect();
 
 private:
-    //소켓 번호
-    SOCKET sock = INVALID_SOCKET;
-    //WSAStartup 성공 여부
-    bool winsockStarted_ = false;
+    SOCKET sock = INVALID_SOCKET;    //소켓 번호
+    bool winsockStarted = false;    //WSAStartup 성공 여부
+
+    void ReceiveLoop(std::stop_token stop, SOCKET connectedSocket); // 대기방 패킷 수신 함수
+    std::jthread receiveThread;                                    // 클라이언트 수신 스레드
 };

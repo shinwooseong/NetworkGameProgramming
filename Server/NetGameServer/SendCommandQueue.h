@@ -9,9 +9,11 @@
 #include <array>
 #include <WinSock2.h>
 
-constexpr std::uint8_t LobbyStateType = 1; // 대기방 상태 메시지 번호
+#include "../../Shared/Protocol.h"
 
-using LobbyPacket = std::array<std::uint8_t, 5>; // 고정 5바이트 패킷
+//constexpr std::uint8_t LobbyStateType = 1; // 대기방 상태 메시지 번호
+
+//using LobbyPacket = std::array<std::uint8_t, 5>; // 고정 5바이트 패킷
 
 struct ClientSession
 {
@@ -27,7 +29,7 @@ struct ClientSession
 struct SendCommand
 {
     std::shared_ptr<ClientSession> target; // 송신 대상 연결
-    LobbyPacket packet;                   // 송신할 패킷 사본
+    Protocol::LobbyPacket packet;                   // 송신할 패킷 사본
 };
 class SendCommandQueue
 {

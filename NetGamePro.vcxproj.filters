@@ -50,7 +50,10 @@
     <ClInclude Include="Shared\GameSimulation.h">
       <Filter>Shared</Filter>
     </ClInclude>
-    <ClInclude Include="ClientNetwork.h">
+    <ClInclude Include="Shared\Protocol.h">
+      <Filter>Shared</Filter>
+    </ClInclude>
+    <ClInclude Include="Client\ClientNetwork.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>
