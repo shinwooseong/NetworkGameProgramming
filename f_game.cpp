@@ -163,6 +163,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 }
 RECT client; // 클라이언트 크기 가져오는 전역변수
 
+// 화면 크기 변경시에 게임 화면 따라서 변하게 하는 것
+
+static RECT GetGameViewport(const RECT& window, const RECT& game)
+{
+	const int windowWidth = window.right - window.left;
+	const int windowHeight = window.bottom - window.top;
+	const int gameWidth = game.right - game.left;
+	const int gameHeight = game.bottom - game.top;
+
+	if (windowWidth <= 0 || windowHeight <= 0 ||
+		gameWidth <= 0 || gameHeight <= 0)
+		return {};
+
+	const double scaleX = static_cast<double>(windowWidth) / gameWidth;
+	const double scaleY = static_cast<double>(windowHeight) / gameHeight;
+	const double scale = scaleX < scaleY ? scaleX : scaleY;
+
+	const int width = static_cast<int>(gameWidth * scale);
+	const int height = static_cast<int>(gameHeight * scale);
+	const int x = window.left + (windowWidth - width) / 2;
+	const int y = window.top + (windowHeight - height) / 2;
+
+	return { x, y, x + width, y + height };
+}
+
+
+
 
 CImage back[2]; // 배경 이미지
 int current_back = 0;	// 처음은 낮배경부터 , 0 = 낮 , 1= 밤
@@ -693,7 +720,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 		ReportFps(bGameStart && !bGameOver && !bGamePause);
 
-		BitBlt(hdc, 0, 0, client.right, client.bottom, mdc, 0, 0, SRCCOPY);
+		RECT windowRect{};
+		GetClientRect(hWnd, &windowRect);
+		const RECT viewport = GetGameViewport(windowRect, client);
+
+		FillRect(hdc, &windowRect, (HBRUSH)GetStockObject(BLACK_BRUSH));
+
+		const int width = viewport.right - viewport.left;
+		const int height = viewport.bottom - viewport.top;
+
+		if (width > 0 && height > 0)
+		{
+			SetStretchBltMode(hdc, COLORONCOLOR);
+			StretchBlt(hdc, viewport.left, viewport.top, width, height,
+				mdc, 0, 0, client.right, client.bottom, SRCCOPY);
+		}
+
+
 		SelectObject(mdc, oldBitmap);
 		DeleteObject(hBitmap);
 		DeleteDC(mdc);
@@ -702,9 +745,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_LBUTTONDOWN:
 	{
-		POINT mouse = { LOWORD(lParam), HIWORD(lParam) };
-		RECT click = { startBox.left, startBox.top,  startBox.right, startBox.bottom };
-		if (PtInRect(&click, mouse)) // 게임시작 전 화면에서 클릭 !!
+		if (bGameStart || bGameOver)
+			break;
+
+		RECT windowRect{};
+		GetClientRect(hWnd, &windowRect);
+		const RECT viewport = GetGameViewport(windowRect, client);
+
+		const POINT click = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+		if (!PtInRect(&viewport, click))
+			break;
+
+		const int width = viewport.right - viewport.left;
+		const int height = viewport.bottom - viewport.top;
+
+		// 확대된 창 좌표를 원래 게임 좌표로 변환합니다.
+		const POINT mouse = {
+			static_cast<LONG>(
+				static_cast<long long>(click.x - viewport.left) * client.right / width),
+			static_cast<LONG>(
+				static_cast<long long>(click.y - viewport.top) * client.bottom / height)
+		};
+
+		if (PtInRect(&startBox, mouse))
 		{
 			input.Reset();
 			bGameStart = true;
@@ -856,6 +919,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		}
 		break;
 	}
+	case WM_SIZE:
+		InvalidateRect(hWnd, nullptr, FALSE);
+		return 0;
+
 	case WM_DESTROY:
 		PlaySound(NULL, 0, 0);
 		mciSendString(L"close shotSound", NULL, 0, NULL);
