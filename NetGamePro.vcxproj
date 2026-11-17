@@ -109,6 +109,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -131,6 +132,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Client\ClientNetwork.cpp" />
     <ClCompile Include="Client\Input.cpp" />
     <ClCompile Include="Client\Render.cpp" />
     <ClCompile Include="f_game.cpp" />
@@ -138,11 +140,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Assets.h" />
+    <ClInclude Include="Client\ClientNetwork.h" />
     <ClInclude Include="Client\Input.h" />
     <ClInclude Include="Client\Render.h" />
     <ClInclude Include="Shared\GameSimulation.h" />
     <ClInclude Include="Shared\GameState.h" />
     <ClInclude Include="Shared\InputCommand.h" />
+    <ClInclude Include="Shared\Protocol.h" />
     <GameResource Include="resources\**\*" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

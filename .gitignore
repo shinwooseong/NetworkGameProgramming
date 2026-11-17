@@ -1,3 +1,5 @@
 .vs/
 build/
 *.vcxproj.user
+x64/
+/Server/NetGameServer/connection-check/
