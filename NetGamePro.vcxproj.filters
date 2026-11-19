@@ -27,6 +27,9 @@
     <ClCompile Include="Shared\GameSimulation.cpp">
       <Filter>Shared</Filter>
     </ClCompile>
+    <ClCompile Include="Client\ClientNetwork.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Assets.h">
@@ -46,6 +49,12 @@
     </ClInclude>
     <ClInclude Include="Shared\GameSimulation.h">
       <Filter>Shared</Filter>
+    </ClInclude>
+    <ClInclude Include="Shared\Protocol.h">
+      <Filter>Shared</Filter>
+    </ClInclude>
+    <ClInclude Include="Client\ClientNetwork.h">
+      <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
