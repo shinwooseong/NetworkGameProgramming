@@ -50,7 +50,8 @@ public:
     // 시작화면
     void DrawStartScreen(HDC dc, int width, int height,
         CImage& background, CImage& title, CImage& startButton,
-        CImage& emptySlot);
+        CImage& emptySlot, CImage& readySlot, const bool (&occupied)[2],
+    int myPlayerNumber, int hostPlayerNumber);
 
     // 결과화면
     void DrawResultScreen(HDC dc, int width, int height,

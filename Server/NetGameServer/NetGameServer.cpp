@@ -140,7 +140,13 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
             if (received > 0)
             {
                 std::printf("%d 바이트 받음\n", received);
-                // 다음 단계: 받은 바이트를 연결별 수신 버퍼에 추가
+                for (int i = 0; i < received; ++i)
+                {
+                    if (static_cast<std::uint8_t>(buffer[i]) == Protocol::StartRequestType)
+                        queue.Push({CommandType::StartRequested, slot, session});
+                    else
+                        shutdown(session->socket, SD_BOTH); // 지원하지 않는 요청 연결 중단
+                }
                 continue;
             }
 
@@ -197,6 +203,7 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
 void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueue& sendQueue)
 {
     std::array<std::shared_ptr<ClientSession>, 2> sessions{};   // 대기방 슬롯 두 자리
+    bool gameStarted = false; // 중복 시작 요청 차단
     int hostPlayerNumber = 0;                                   // 방장 미지정
     GameCommand command{}; // 큐에서 꺼낸 명령
 
@@ -213,6 +220,11 @@ void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueu
         switch (command.type)           // 접속과 이탈을 구분
         {
         case CommandType::Connected:
+            if (gameStarted)
+            {
+                shutdown(command.session->socket, SD_BOTH); // 진행 중 신규 참가 차단
+                continue;
+            }
             if (sessions[slot])
                 continue; // 이미 사용 중인 슬롯 제외
 
@@ -223,6 +235,17 @@ void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueu
 
             std::printf("[GameLoop] Slot %d 연결\n", command.slot + 1);
             break;                     // switch를 빠져나온 뒤 다음 명령을 기다려.
+
+        case CommandType::StartRequested:
+            if (gameStarted || sessions[slot] != command.session ||
+                hostPlayerNumber != playerNumber || !sessions[0] || !sessions[1])
+                continue;
+            gameStarted = true;
+            for (const auto& session : sessions)
+                sendQueue.Push({session, Protocol::SerializePacket(
+                    Protocol::GameStartedPacket{Protocol::GameStartedType})});
+            std::printf("[Game] Start approved for both players\n");
+            continue;
 
         case CommandType::Disconnected:
             if (sessions[slot] != command.session)
@@ -242,6 +265,8 @@ void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueu
         std::printf("[Lobby] P1:%c P2:%c 방장: P%d\n",
             sessions[0] ? 'O' : 'X', sessions[1] ? 'O' : 'X', hostPlayerNumber);
 
+        if (!sessions[0] && !sessions[1])
+            gameStarted = false;
         QueueLobbyState(sessions, hostPlayerNumber, sendQueue); // 변경된 대기방 상태의 송신 예약
     }
 }

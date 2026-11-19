@@ -237,7 +237,8 @@ void Render::DrawPause(HDC dc, int width, int height)
 
 void Render::DrawStartScreen(HDC dc, int width, int height,
     CImage& background, CImage& title, CImage& startButton,
-    CImage& emptySlot)
+    CImage& emptySlot, CImage& readySlot, const bool (&occupied)[2],
+    int myPlayerNumber, int hostPlayerNumber)
 {
     const int centerX = width / 2;
     const int centerY = height / 2;
@@ -260,7 +261,9 @@ void Render::DrawStartScreen(HDC dc, int width, int height,
             startButton.GetWidth(), startButton.GetHeight());
     }
 
-    const wchar_t message[] = L"Click 'START' TO GAME START";
+    const wchar_t* message = myPlayerNumber == 0 ? L"Connecting to server..." :
+        (!occupied[0] || !occupied[1]) ? L"Waiting for another player" :
+        myPlayerNumber == hostPlayerNumber ? L"Click START to begin" : L"Waiting for host to start";
     const int oldMode = SetBkMode(dc, TRANSPARENT);
     const COLORREF oldColor = SetTextColor(dc, RGB(255, 255, 255));
 
@@ -277,15 +280,20 @@ void Render::DrawStartScreen(HDC dc, int width, int height,
     for (int i = 0; i < 2; ++i)
     {
         const int slotX = slotCenters[i];
-        if (!emptySlot.IsNull())
+        CImage& image = occupied[i] ? readySlot : emptySlot;
+        if (!image.IsNull())
         {
-            DrawSprite(dc, emptySlot, slotX - slotSize / 2, slotTop,
-                slotSize, slotSize, emptySlot.GetWidth(), emptySlot.GetHeight());
+            DrawSprite(dc, image, slotX - slotSize / 2, slotTop,
+                slotSize, slotSize, image.GetWidth(), image.GetHeight());
         }
 
         RECT label = {slotX - 64, slotTop + slotSize + 4,
             slotX + 64, slotTop + slotSize + 24};
-        DrawTextW(dc, slotLabels[i], -1, &label, DT_CENTER | DT_SINGLELINE);
+        wchar_t slotText[64]{};
+        swprintf_s(slotText, L"%s%s%s", slotLabels[i],
+            myPlayerNumber == i + 1 ? L" (YOU)" : L"",
+            hostPlayerNumber == i + 1 ? L" HOST" : L"");
+        DrawTextW(dc, slotText, -1, &label, DT_CENTER | DT_SINGLELINE);
     }
 
     SetTextColor(dc, oldColor);

@@ -6,6 +6,10 @@
 namespace Protocol
 {
     constexpr std::uint8_t LobbyStateType = 1; // 대기방 상태 메시지 번호
+    constexpr std::uint8_t StartRequestType = 2; // 방장 시작 요청 번호
+    constexpr std::uint8_t GameStartedType = 3; // 서버 시작 승인 번호
+    using StartRequestPacket = std::array<std::uint8_t, 1>;
+    using GameStartedPacket = std::array<std::uint8_t, 1>;
 
     enum LobbyField : int
     {

@@ -8,16 +8,21 @@
 class ClientNetwork
 {
 public:
+    static constexpr UINT LobbyChangedMessage = WM_APP + 1; // 로비 갱신 알림
+    static constexpr UINT GameStartedMessage = WM_APP + 2; // 게임 시작 알림
+    static constexpr UINT ConnectionLostMessage = WM_APP + 3; // 연결 종료 알림
     ClientNetwork() = default;
     ~ClientNetwork();
 
     ClientNetwork(const ClientNetwork&) = delete;
     ClientNetwork& operator=(const ClientNetwork&) = delete;
 
-    bool Connect(const char* ipv4, unsigned short port);
+    bool Connect(const char* ipv4, unsigned short port, HWND window = nullptr);
+    bool RequestStart();
     void Disconnect();
 
 private:
+    HWND window_ = nullptr; // 수신 알림 대상 창
     SOCKET sock = INVALID_SOCKET;    //소켓 번호
     bool winsockStarted = false;    //WSAStartup 성공 여부
 

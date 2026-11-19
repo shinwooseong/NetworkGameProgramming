@@ -98,7 +98,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
 	// 11.11
 	ClientNetwork network;
-	if (network.Connect("127.0.0.1", 9000))
+	SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&network));
+	if (network.Connect("127.0.0.1", 9000, hWnd))
 	{
 		OutputDebugStringW(L"[TCP 클라이언트] TCP 연결 성공\n");
 	}
@@ -332,6 +333,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 	static Input input;
 	static Render render;
 
+    static int myPlayerNumber = 0; // 서버 배정 플레이어 번호
+    static int hostPlayerNumber = 0; // 현재 방장 번호
+    static bool occupied[2]{}; // 로비 슬롯 접속 여부
 	static bool bGameStart; // 게임시작을 위한 변수 => START BOX 누를시 시작
 	static RECT startBox; // START BOX 
 	static bool bGamePause; // 게임 일시정지
@@ -517,7 +521,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		if (bGameStart == false && bGameOver == false) // 게임 시작 전 화면
 		{
 			render.DrawStartScreen(mdc, client.right, client.bottom,
-				GameStartBGImage, TextImage, GameStartImage, EmptyPlayerSlotImage);
+				GameStartBGImage, TextImage, GameStartImage, EmptyPlayerSlotImage,
+                ReadyPlayerSlotImage, occupied, myPlayerNumber, hostPlayerNumber);
 		}
 		else if (bGameStart && bGameOver == false) // 게임 시작 후 화면
 		{
@@ -714,25 +719,49 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		EndPaint(hWnd, &ps);
 		break;
 	}
-	case WM_LBUTTONDOWN:
-	{
-		POINT mouse = { LOWORD(lParam), HIWORD(lParam) };
-		RECT click = { startBox.left, startBox.top,  startBox.right, startBox.bottom };
-		if (PtInRect(&click, mouse)) // 게임시작 전 화면에서 클릭 !!
-		{
-			input.Reset();
-			bGameStart = true;
+    case ClientNetwork::LobbyChangedMessage:
+        myPlayerNumber = static_cast<int>(wParam);
+        hostPlayerNumber = static_cast<int>(lParam & 0xff);
+        occupied[0] = ((lParam >> 8) & 0xff) != 0;
+        occupied[1] = ((lParam >> 16) & 0xff) != 0;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
 
-			PlaySound(NULL, NULL, 0);
-			// 게임시작 시 배경음악 재생
-			PlaySound(Assets::background_bgm().c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
+    case ClientNetwork::ConnectionLostMessage:
+        myPlayerNumber = 0;
+        hostPlayerNumber = 0;
+        occupied[0] = occupied[1] = false;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
 
-			SetTimer(hWnd, 1, 17, NULL);   // 플레이어 이동
-			SetTimer(hWnd, 2, 17, NULL);   // 보스, 총알, 충돌 등
-			SetTimer(hWnd, 3, 100, NULL);  // 아이템 시간과 효과는 그대로
-		}
-		break;
-	}
+    case WM_LBUTTONDOWN:
+    {
+        POINT mouse{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        if (!bGameStart && !bGameOver && myPlayerNumber != 0 &&
+            myPlayerNumber == hostPlayerNumber && occupied[0] && occupied[1] &&
+            PtInRect(&startBox, mouse))
+        {
+            auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+            if (network && !network->RequestStart())
+                OutputDebugStringW(L"[Network] Start request failed\n");
+        }
+        break;
+    }
+
+    case ClientNetwork::GameStartedMessage:
+        if (bGameStart || bGameOver)
+            break;
+        input.Reset();
+        ResetGame(gameState, {client.left, client.top, client.right, client.bottom});
+        bGameStart = true;
+        bGamePause = false;
+        PlaySound(Assets::background_bgm().c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_LOOP);
+        SetTimer(hWnd, 1, 17, nullptr);
+        SetTimer(hWnd, 2, 17, nullptr);
+        SetTimer(hWnd, 3, 100, nullptr);
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+
 	case WM_KEYDOWN:
 	{
 		if (bGameOver) // 게임 종료일때

@@ -3,13 +3,15 @@
 #include <mutex>
 #include <queue>
 #include <stop_token>
+#include <memory>
 
 struct ClientSession;
 
 enum class CommandType       // 큐에 넣을 명령의 종류를 정의
 {
     Connected,              // 클라이언트가 접속했을 때
-    Disconnected            // 클라이언트 연결이 끊겼을 때
+    Disconnected,           // 클라이언트 연결 종료
+    StartRequested          // 게임 시작 요청
 };
 
 struct GameCommand           // 큐에 들어가는 명령
