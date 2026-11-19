@@ -5,6 +5,9 @@
 
 #include <stop_token>
 #include <thread>
+#include <algorithm>
+#include <chrono>
+#include <limits>
 #include <functional> // std::ref() 참조로 전달
 
 
@@ -45,33 +48,35 @@ int main()
 	retval = listen(listen_sock, 5);
 	if (retval == SOCKET_ERROR) exit(1);
 
-	// 데이터 통신에 사용할 변수
-	SOCKET client_sock;
-	struct sockaddr_in clientaddr;
-	int addrlen;
-	HANDLE hThread;
+    u_long nonBlocking = 1; // 비차단 소켓 설정값
+    if (ioctlsocket(listen_sock, FIONBIO, &nonBlocking) == SOCKET_ERROR)
+    {
+        std::printf("ioctlsocket failed: %d\n", WSAGetLastError());
+        closesocket(listen_sock);
+        WSACleanup();
+        return 1;
+    }
 
-    GameCommandQueue gameQueue; // 두 스레드가 사용할 큐
-    SendCommandQueue sendQueue; // 게임 연산에서 송신으로 전달할 명령 큐
+    {
+        GameCommandQueue gameQueue; // 수신 명령 큐
+        SendCommandQueue sendQueue; // 직렬화된 패킷 송신 큐
+        std::jthread sendThread(SendLoop, std::ref(sendQueue));
+        std::jthread gameThread(GameLoop, std::ref(gameQueue), std::ref(sendQueue));
+        std::jthread receiveThread(ReceiveLoop, listen_sock, std::ref(gameQueue));
 
-	// 스레드
-	std::jthread receiveThread(ReceiveLoop, listen_sock, std::ref(gameQueue));
-	std::jthread gameThread(GameLoop, std::ref(gameQueue), std::ref(sendQueue));
-	std::jthread sendThread(SendLoop, std::ref(sendQueue));
+        std::cout << "Press Enter to stop the server." << std::endl;
+        std::cin.get();
+        receiveThread.request_stop();
+        receiveThread.join();
+        gameThread.request_stop();
+        gameThread.join();
+        sendThread.request_stop();
+        sendThread.join();
+    } // 큐와 남은 세션의 Winsock 종료 전 정리
 
-	std::cout << "Press Enter to stop the server.\n";
-	std::cin.get();
-
-	// 세 스레드에 모두 종료를 요청한 뒤 종료를 기다려.
-	receiveThread.request_stop();
-	gameThread.request_stop();
-	sendThread.request_stop();
-
-	// 소켓 닫기
-	closesocket(listen_sock);
-
-	// 윈속 종료
-	WSACleanup();
+    closesocket(listen_sock);
+    WSACleanup();
+    return 0;
 }
 
 void QueueLobbyState(const std::array<std::shared_ptr<ClientSession>, 2>& sessions, int hostPlayerNumber, SendCommandQueue& sendQueue)
@@ -81,15 +86,14 @@ void QueueLobbyState(const std::array<std::shared_ptr<ClientSession>, 2>& sessio
         if (!sessions[i])
             continue; // 빈 슬롯 제외
 
-        Protocol::LobbyPacket packet{
-            Protocol::LobbyStateType,                           // 메시지 종류
-            static_cast<std::uint8_t>(i + 1),                   // 수신자의 플레이어 번호
-            static_cast<std::uint8_t>(hostPlayerNumber),        // 현재 방장 번호
-            static_cast<std::uint8_t>(sessions[0] != nullptr),  // 1번 접속 여부
-            static_cast<std::uint8_t>(sessions[1] != nullptr)   // 2번 접속 여부
-        };
+        Protocol::LobbyPacket packet{};
+        packet[Protocol::Type] = Protocol::LobbyStateType;
+        packet[Protocol::MyPlayerNumber] = static_cast<std::uint8_t>(i + 1);
+        packet[Protocol::HostNumber] = static_cast<std::uint8_t>(hostPlayerNumber);
+        packet[Protocol::Player1Occupied] = static_cast<std::uint8_t>(sessions[0] != nullptr);
+        packet[Protocol::Player2Occupied] = static_cast<std::uint8_t>(sessions[1] != nullptr);
 
-        sendQueue.Push({ sessions[i], packet }); // 대상 연결과 패킷의 송신 큐 등록
+        sendQueue.Push({sessions[i], Protocol::SerializePacket(packet)}); // 공통 바이트 형식의 송신 예약
     }
 }
 
@@ -149,7 +153,7 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
                 std::printf("recv 실패: %d\n", error);
             }
 
-            closesocket(session->socket);              // 끊긴 소켓 닫기
+            shutdown(session->socket, SD_BOTH);              // 끊긴 소켓 닫기
             queue.Push({ CommandType::Disconnected, slot, session });  // 어느 자리가 비었는지 알림
             session.reset();                                  // 수신 목록의 슬롯 해제
         }
@@ -244,48 +248,43 @@ void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueu
 
 void SendLoop(std::stop_token stop, SendCommandQueue& sendQueue)
 {
-    //using Clock = std::chrono::steady_clock; // 경과시간 측정용 시계
-    SendCommand command{};                  // 송신 큐에서 꺼낼 명령
-
+    using Clock = std::chrono::steady_clock;
+    SendCommand command{};
     while (!stop.stop_requested() && sendQueue.WaitPop(stop, command))
     {
-        const SOCKET socket = command.target->socket; // 대상 세션의 소켓
-        const char* bytes =
-            reinterpret_cast<const char*>(command.packet.data()); // 패킷 시작 주소
-        const int length = static_cast<int>(command.packet.size()); // 전체 바이트 수
-        int sent = 0;                                               // 송신 완료 바이트 수
-        //const auto deadline = Clock::now() + std::chrono::seconds(1); // 송신 제한 시각
-
-        //while (sent < length && !stop.stop_requested() && Clock::now() < deadline)
-        while (sent < length && !stop.stop_requested())
+        if (!command.target || command.packet.empty())
         {
-            const int result = send(socket, bytes + sent, length - sent, 0); // 남은 바이트 송신
-
-            if (result > 0)
-            {
-                sent += result; // 송신 완료 위치 갱신
-                continue;
-            }
-
-            if (result != SOCKET_ERROR)
-                break; // 송신 진행 불가
-
-            const int error = WSAGetLastError(); // 송신 오류 번호 조회
-            if (error != WSAEWOULDBLOCK)
-                break; // 재시도할 수 없는 오류
-
-            fd_set writable;
-            FD_ZERO(&writable);        // 쓰기 감시 목록 초기화
-            FD_SET(socket, &writable); // 대상 소켓 등록
-
-            timeval timeout{ 0, 50000 }; // 최대 50ms 대기
-            if (select(0, nullptr, &writable, nullptr, &timeout) == SOCKET_ERROR)
-                break; // 쓰기 감시 실패
+            command = {};
+            continue;
         }
 
-        if (sent != length)
-            shutdown(socket, SD_BOTH); // 미완료 패킷이 있는 연결의 송수신 중단
+        const SOCKET socket = command.target->socket;
+        const char* bytes = reinterpret_cast<const char*>(command.packet.data());
+        const std::size_t length = command.packet.size(); // 패킷 종류별 실제 바이트 길이
+        std::size_t sent = 0;
+        const auto deadline = Clock::now() + std::chrono::seconds(1); // 연결별 송신 제한 시각
+        while (sent < length && !stop.stop_requested() && Clock::now() < deadline)
+        {
+            const int remaining = static_cast<int>((std::min)(
+                length - sent, static_cast<std::size_t>((std::numeric_limits<int>::max)())));
+            const int result = send(socket, bytes + sent, remaining, 0);
+            if (result > 0)
+            {
+                sent += static_cast<std::size_t>(result);
+                continue;
+            }
+            if (result != SOCKET_ERROR || WSAGetLastError() != WSAEWOULDBLOCK)
+                break;
 
-        command = {}; // 처리한 명령의 세션 참조 해제
+            fd_set writable;
+            FD_ZERO(&writable);
+            FD_SET(socket, &writable);
+            timeval timeout{0, 50000}; // 쓰기 가능 여부의 최대 50ms 대기
+            if (select(0, nullptr, &writable, nullptr, &timeout) == SOCKET_ERROR)
+                break;
+        }
+        if (sent != length)
+            shutdown(socket, SD_BOTH); // 미완료 패킷 연결의 송수신 중단
+        command = {}; // 처리한 세션과 패킷의 참조 해제
     }
 }

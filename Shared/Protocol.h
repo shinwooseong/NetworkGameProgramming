@@ -1,6 +1,7 @@
-#pragma once
+﻿#pragma once
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace Protocol
 {
@@ -17,4 +18,12 @@ namespace Protocol
     };
 
     using LobbyPacket = std::array<std::uint8_t, LobbyPacketSize>;
+
+    using Packet = std::vector<std::uint8_t>; // 직렬화된 송신 바이트
+
+    template <std::size_t Size>
+    Packet SerializePacket(const std::array<std::uint8_t, Size>& packet)
+    {
+        return Packet(packet.begin(), packet.end()); // 필드 순서와 길이를 보존한 바이트 복사
+    }
 }

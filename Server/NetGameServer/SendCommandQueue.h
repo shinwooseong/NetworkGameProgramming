@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <condition_variable>
 #include <mutex>
 #include <queue>
@@ -10,10 +10,6 @@
 #include <WinSock2.h>
 
 #include "../../Shared/Protocol.h"
-
-//constexpr std::uint8_t LobbyStateType = 1; // 대기방 상태 메시지 번호
-
-//using LobbyPacket = std::array<std::uint8_t, 5>; // 고정 5바이트 패킷
 
 struct ClientSession
 {
@@ -29,7 +25,7 @@ struct ClientSession
 struct SendCommand
 {
     std::shared_ptr<ClientSession> target; // 송신 대상 연결
-    Protocol::LobbyPacket packet;                   // 송신할 패킷 사본
+    Protocol::Packet packet;              // 프로토콜 패킷의 가변 길이 바이트 사본
 };
 class SendCommandQueue
 {
