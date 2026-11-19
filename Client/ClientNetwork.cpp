@@ -43,6 +43,8 @@ bool ClientNetwork::Connect(const char* ipv4, unsigned short port)
         [this, connectedSocket = sock](std::stop_token stop)
         {
             ReceiveLoop(stop, connectedSocket); // 대기방 패킷 수신
+            
+
         });
 
     return true;
@@ -50,17 +52,28 @@ bool ClientNetwork::Connect(const char* ipv4, unsigned short port)
 
 void ClientNetwork::Disconnect()
 {
+    receiveThread.request_stop();
+
+    if (sock != INVALID_SOCKET)
+        shutdown(sock, SD_BOTH);
+
+    if (receiveThread.joinable())
+        receiveThread.join();
+
     if (sock != INVALID_SOCKET)
     {
         closesocket(sock);
         sock = INVALID_SOCKET;
     }
 
+    playerSlots.store(0);
+
     if (winsockStarted)
     {
         WSACleanup();
         winsockStarted = false;
     }
+
 }
 
 void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
@@ -118,6 +131,17 @@ void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
             static_cast<int>(packet[4]));
         OutputDebugStringA(message); // 완성된 대기방 상태 출력
 
+        const unsigned int slots =
+            (packet[3] != 0 ? 1u : 0u) |
+            (packet[4] != 0 ? 2u : 0u);
+
+        playerSlots.store(slots);
+
+
         filled = 0; // 다음 패킷의 수신 위치 초기화
     }
+
+
+    // 서버 연결이 끊기면 두 자리 모두 비운다.
+    playerSlots.store(0);
 }
