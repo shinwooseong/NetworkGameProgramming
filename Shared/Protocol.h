@@ -2,6 +2,9 @@
 #include <array>
 #include <cstdint>
 #include <vector>
+#include <cmath>
+#include <cstring>
+#include <limits>
 
 namespace Protocol
 {
@@ -10,6 +13,51 @@ namespace Protocol
     constexpr std::uint8_t GameStartedType = 3; // 서버 시작 승인 번호
     using StartRequestPacket = std::array<std::uint8_t, 1>;
     using GameStartedPacket = std::array<std::uint8_t, 1>;
+    constexpr std::uint8_t PlayerPositionType = 4; // 플레이어 좌표 메시지 번호
+    constexpr int PositionPacketSize = 10; // 타입 1바이트와 번호 1바이트 및 좌표 8바이트
+    using PositionPacket = std::array<std::uint8_t, PositionPacketSize>;
+
+    struct PlayerPosition
+    {
+        std::uint8_t playerNumber = 0;
+        float x = 0.0f;
+        float y = 0.0f;
+    };
+
+    inline void WriteFloat(std::uint8_t* destination, float value)
+    {
+        static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
+        std::uint32_t bits;
+        std::memcpy(&bits, &value, sizeof(bits));
+        for (int i = 0; i < 4; ++i)
+            destination[i] = static_cast<std::uint8_t>(bits >> (24 - i * 8));
+    }
+
+    inline float ReadFloat(const std::uint8_t* source)
+    {
+        std::uint32_t bits = 0;
+        for (int i = 0; i < 4; ++i)
+            bits = (bits << 8) | source[i];
+        float value;
+        std::memcpy(&value, &bits, sizeof(value));
+        return value;
+    }
+
+    inline PositionPacket MakePositionPacket(std::uint8_t playerNumber, float x, float y)
+    {
+        PositionPacket packet{};
+        packet[0] = PlayerPositionType;
+        packet[1] = playerNumber;
+        WriteFloat(packet.data() + 2, x);
+        WriteFloat(packet.data() + 6, y);
+        return packet;
+    }
+
+    inline bool ReadPosition(const std::uint8_t* packet, PlayerPosition& position)
+    {
+        position = {packet[1], ReadFloat(packet + 2), ReadFloat(packet + 6)};
+        return std::isfinite(position.x) && std::isfinite(position.y);
+    }
 
     enum LobbyField : int
     {

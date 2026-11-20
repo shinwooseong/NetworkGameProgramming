@@ -103,6 +103,7 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
     //SOCKET clients[2] = { INVALID_SOCKET, INVALID_SOCKET }; // 클라이언트 통신 소켓
     std::array<std::shared_ptr<ClientSession>, 2> clients{}; // 수신 스레드의 연결 목록
     char buffer[BUFSIZE];
+    std::array<Protocol::Packet, 2> pending; // 연결별 미완성 요청 버퍼
 
     while (!stop.stop_requested()) // 종료 요청이 오기 전까지 계속 반복
     {
@@ -139,13 +140,45 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
 
             if (received > 0)
             {
-                std::printf("%d 바이트 받음\n", received);
-                for (int i = 0; i < received; ++i)
+                auto& input = pending[slot];
+                input.insert(input.end(), buffer, buffer + received);
+                std::size_t consumed = 0;
+                bool invalidPacket = false;
+                while (consumed < input.size())
                 {
-                    if (static_cast<std::uint8_t>(buffer[i]) == Protocol::StartRequestType)
+                    const std::uint8_t type = input[consumed];
+                    const std::size_t length = type == Protocol::StartRequestType ? 1 :
+                        type == Protocol::PlayerPositionType ? Protocol::PositionPacketSize : 0;
+                    if (length == 0)
+                    {
+                        invalidPacket = true;
+                        consumed = input.size();
+                        break;
+                    }
+                    if (input.size() - consumed < length)
+                        break;
+                    if (type == Protocol::StartRequestType)
                         queue.Push({CommandType::StartRequested, slot, session});
                     else
-                        shutdown(session->socket, SD_BOTH); // 지원하지 않는 요청 연결 중단
+                    {
+                        Protocol::PlayerPosition position;
+                        if (!Protocol::ReadPosition(input.data() + consumed, position))
+                        {
+                            invalidPacket = true;
+                            consumed = input.size();
+                            break;
+                        }
+                        queue.Push({CommandType::PositionUpdated, slot, session, position.x, position.y});
+                    }
+                    consumed += length;
+                }
+                input.erase(input.begin(), input.begin() + consumed);
+                if (invalidPacket)
+                {
+                    shutdown(session->socket, SD_BOTH);
+                    queue.Push({CommandType::Disconnected, slot, session});
+                    session.reset(); // 잘못된 패킷 연결의 즉시 정리
+                    input.clear();
                 }
                 continue;
             }
@@ -183,6 +216,10 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
                 continue;
             }
 
+            const BOOL noDelay = TRUE; // 짧은 좌표 패킷의 즉시 중계
+            setsockopt(client, IPPROTO_TCP, TCP_NODELAY,
+                reinterpret_cast<const char*>(&noDelay), sizeof(noDelay));
+            pending[slot].clear(); // 재사용 슬롯의 이전 수신 데이터 제거
             clients[slot] = std::make_shared<ClientSession>(client); // 새 소켓 저장
             queue.Push({ CommandType::Connected, slot, clients[slot]});    // 어느 자리에 연결됐는지 알림
             std::printf("Client 연결, 플레이어 %d\n", slot + 1);
@@ -235,6 +272,14 @@ void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueu
 
             std::printf("[GameLoop] Slot %d 연결\n", command.slot + 1);
             break;                     // switch를 빠져나온 뒤 다음 명령을 기다려.
+
+        case CommandType::PositionUpdated:
+            if (!gameStarted || sessions[slot] != command.session)
+                continue;
+            if (const auto& other = sessions[1 - slot])
+                sendQueue.Push({other, Protocol::SerializePacket(Protocol::MakePositionPacket(
+                    static_cast<std::uint8_t>(playerNumber), command.x, command.y))});
+            continue;
 
         case CommandType::StartRequested:
             if (gameStarted || sessions[slot] != command.session ||
