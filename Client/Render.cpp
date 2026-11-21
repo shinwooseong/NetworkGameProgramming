@@ -237,7 +237,8 @@ void Render::DrawPause(HDC dc, int width, int height)
 
 void Render::DrawStartScreen(HDC dc, int width, int height,
     CImage& background, CImage& title, CImage& startButton,
-    CImage& emptySlot, CImage& readySlot, unsigned int playerSlots)
+    CImage& emptySlot, CImage& readySlot, unsigned int playerSlots,
+    unsigned int hostNumber)
 {
     const int centerX = width / 2;
     const int centerY = height / 2;
@@ -286,7 +287,15 @@ void Render::DrawStartScreen(HDC dc, int width, int height,
             DrawSprite(dc, slotImage, slotX - slotSize / 2, slotTop,
                 slotSize, slotSize,
                 slotImage.GetWidth(), slotImage.GetHeight());
-        }   
+        }
+
+        if (hasPlayer && hostNumber == static_cast<unsigned int>(i + 1))
+        {
+            RECT leaderLabel = {slotX - 64, slotTop + slotSize + 4,
+                slotX + 64, slotTop + slotSize + 28};
+            DrawTextW(dc, L"Leader", -1, &leaderLabel,
+                DT_CENTER | DT_SINGLELINE);
+        }
     }
 
     SetTextColor(dc, oldColor);

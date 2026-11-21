@@ -67,6 +67,7 @@ void ClientNetwork::Disconnect()
     }
 
     playerSlots.store(0);
+    hostNumber.store(0);
 
     if (winsockStarted)
     {
@@ -82,6 +83,9 @@ void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
     constexpr int PacketSize = 5;               // 대기방 패킷 길이
     std::array<unsigned char, PacketSize> packet{}; // 패킷 수신 버퍼
     int filled = 0;                                 // 현재까지 수신한 바이트 수
+
+
+
 
     while (!stop.stop_requested())
     {
@@ -136,7 +140,7 @@ void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
             (packet[4] != 0 ? 2u : 0u);
 
         playerSlots.store(slots);
-
+        hostNumber.store(packet[2]);
 
         filled = 0; // 다음 패킷의 수신 위치 초기화
     }
@@ -144,4 +148,5 @@ void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
 
     // 서버 연결이 끊기면 두 자리 모두 비운다.
     playerSlots.store(0);
+    hostNumber.store(0);
 }

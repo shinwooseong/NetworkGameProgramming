@@ -22,6 +22,11 @@ public:
 
 
 
+    unsigned int GetHostNumber() const
+    {
+        return hostNumber.load();
+    }
+
     bool Connect(const char* ipv4, unsigned short port);
     void Disconnect();
 
@@ -34,6 +39,8 @@ private:
     // 0 = 둘 다 비어 있음
     // 1 = 1번 접속, 2 = 2번 접속, 3 = 둘 다 접속
     std::atomic<unsigned int> playerSlots{ 0 };
+    // 0 = no host, 1 = PLAYER 1, 2 = PLAYER 2.
+    std::atomic<unsigned int> hostNumber{0};
 
 
     std::jthread receiveThread;                                    // 클라이언트 수신 스레드

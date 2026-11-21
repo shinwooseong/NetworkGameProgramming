@@ -547,7 +547,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			render.DrawStartScreen(mdc, client.right, client.bottom,
 				GameStartBGImage, TextImage, GameStartImage,
 				EmptyPlayerSlotImage, ReadyPlayerSlotImage,
-				network.GetPlayerSlots());
+				network.GetPlayerSlots(), network.GetHostNumber());
 		}
 		else if (bGameStart && bGameOver == false) // 게임 시작 후 화면
 		{
