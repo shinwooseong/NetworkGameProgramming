@@ -58,4 +58,7 @@ public:
     // 결과화면
     void DrawResultScreen(HDC dc, int width, int height,
         CImage& background, CImage& resultImage, float playTime, int score);
+
+    // 점수화면
+    void DrawScores(HDC dc, int player1Score, int player2Score);
 };

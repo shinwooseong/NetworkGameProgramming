@@ -338,3 +338,33 @@ void Render::DrawResultScreen(HDC dc, int width, int height,
 
     SetBkMode(dc, oldMode);
 }
+
+void Render::DrawScores(HDC dc, int player1Score, int player2Score)
+{
+    // 팀 총점 = 플레이어1 점수 + 플레이어2 점수
+    const int teamScore = player1Score + player2Score;
+
+    RECT panel = { 10, 10, 230, 90 };
+    FillRect(dc, &panel, (HBRUSH)GetStockObject(BLACK_BRUSH));
+
+    const int oldMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF oldColor = SetTextColor(dc, RGB(255, 255, 255));
+
+    wchar_t text[64];
+
+    swprintf_s(text, _countof(text),
+        L"PLAYER 1 : %d", player1Score);
+    TextOutW(dc, 20, 20, text, lstrlenW(text));
+
+    swprintf_s(text, _countof(text),
+        L"PLAYER 2 : %d", player2Score);
+    TextOutW(dc, 20, 42, text, lstrlenW(text));
+
+    swprintf_s(text, _countof(text),
+        L"TEAM : %d", teamScore);
+    TextOutW(dc, 20, 64, text, lstrlenW(text));
+
+    SetTextColor(dc, oldColor);
+    SetBkMode(dc, oldMode);
+
+}

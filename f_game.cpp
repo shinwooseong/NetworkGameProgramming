@@ -539,6 +539,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 			render.DrawResultScreen(mdc, client.right, client.bottom,
 				GameEndBGImage, resultImage, gameState.playTime, player.score);
+
+			render.DrawScores(mdc,
+				gameState.players[0].score, gameState.players[1].score);
 		}
 
 
@@ -830,6 +833,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			{
 				DestroyWindow(hWnd);
 			}
+			break;
+		}
+
+
+		// 테스트용 게임 클리어 키 [
+		if (wParam == VK_OEM_4 && bGameStart)
+		{
+			input.Reset();
+
+			bGameClear = true;
+			bGameOver = true;
+			bGamePause = false;
+
+			KillTimer(hWnd, 1);
+			KillTimer(hWnd, 2);
+			KillTimer(hWnd, 3);
+
+			PlaySound(NULL, 0, 0);
+			mciSendString(L"play winSound from 0", NULL, 0, NULL);
+
+			InvalidateRect(hWnd, nullptr, FALSE);
 			break;
 		}
 
