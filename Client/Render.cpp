@@ -237,7 +237,8 @@ void Render::DrawPause(HDC dc, int width, int height)
 
 void Render::DrawStartScreen(HDC dc, int width, int height,
     CImage& background, CImage& title, CImage& startButton,
-    CImage& emptySlot)
+    CImage& emptySlot, CImage& readySlot, unsigned int playerSlots,
+    unsigned int hostNumber)
 {
     const int centerX = width / 2;
     const int centerY = height / 2;
@@ -277,15 +278,24 @@ void Render::DrawStartScreen(HDC dc, int width, int height,
     for (int i = 0; i < 2; ++i)
     {
         const int slotX = slotCenters[i];
-        if (!emptySlot.IsNull())
+       
+        const bool hasPlayer = (playerSlots & (1u << i)) != 0; // 현재 확인 중인 i번 자리에 플레이어 있는지 확인
+        CImage& slotImage = hasPlayer ? readySlot : emptySlot;
+
+        if (!slotImage.IsNull())
         {
-            DrawSprite(dc, emptySlot, slotX - slotSize / 2, slotTop,
-                slotSize, slotSize, emptySlot.GetWidth(), emptySlot.GetHeight());
+            DrawSprite(dc, slotImage, slotX - slotSize / 2, slotTop,
+                slotSize, slotSize,
+                slotImage.GetWidth(), slotImage.GetHeight());
         }
 
-        RECT label = {slotX - 64, slotTop + slotSize + 4,
-            slotX + 64, slotTop + slotSize + 24};
-        DrawTextW(dc, slotLabels[i], -1, &label, DT_CENTER | DT_SINGLELINE);
+        if (hasPlayer && hostNumber == static_cast<unsigned int>(i + 1))
+        {
+            RECT leaderLabel = {slotX - 64, slotTop + slotSize + 4,
+                slotX + 64, slotTop + slotSize + 28};
+            DrawTextW(dc, L"Leader", -1, &leaderLabel,
+                DT_CENTER | DT_SINGLELINE);
+        }
     }
 
     SetTextColor(dc, oldColor);

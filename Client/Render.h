@@ -48,9 +48,12 @@ public:
     void DrawPause(HDC dc, int width, int height);
 
     // 시작화면
+    // 슬롯 칸 추가
     void DrawStartScreen(HDC dc, int width, int height,
         CImage& background, CImage& title, CImage& startButton,
-        CImage& emptySlot);
+        CImage& emptySlot, CImage& readySlot, unsigned int playerSlots,
+        unsigned int hostNumber);
+
 
     // 결과화면
     void DrawResultScreen(HDC dc, int width, int height,

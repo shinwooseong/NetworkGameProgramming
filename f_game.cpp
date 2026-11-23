@@ -67,6 +67,7 @@ void ReportFps(bool playing)
     tracking = playing;
 }
 
+static ClientNetwork network;
 HINSTANCE g_hInst;
 LPCTSTR lpszClass = L"Final Project";
 LPCTSTR lpszWindowName = L"Final Project";
@@ -97,7 +98,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	UpdateWindow(hWnd);
 
 	// 11.11
-	ClientNetwork network;
+
 	if (network.Connect("127.0.0.1", 9000))
 	{
 		OutputDebugStringW(L"[TCP 클라이언트] TCP 연결 성공\n");
@@ -544,7 +545,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		if (bGameStart == false && bGameOver == false) // 게임 시작 전 화면
 		{
 			render.DrawStartScreen(mdc, client.right, client.bottom,
-				GameStartBGImage, TextImage, GameStartImage, EmptyPlayerSlotImage);
+				GameStartBGImage, TextImage, GameStartImage,
+				EmptyPlayerSlotImage, ReadyPlayerSlotImage,
+				network.GetPlayerSlots(), network.GetHostNumber());
 		}
 		else if (bGameStart && bGameOver == false) // 게임 시작 후 화면
 		{
