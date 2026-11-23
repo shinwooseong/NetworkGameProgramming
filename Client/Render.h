@@ -51,8 +51,9 @@ public:
     // 슬롯 칸 추가
     void DrawStartScreen(HDC dc, int width, int height,
         CImage& background, CImage& title, CImage& startButton,
-        CImage& emptySlot, CImage& readySlot, unsigned int playerSlots,
-        unsigned int hostNumber);
+
+        CImage& emptySlot, CImage& readySlot, const bool (&occupied)[2],
+    int myPlayerNumber, int hostPlayerNumber);
 
 
     // 결과화면

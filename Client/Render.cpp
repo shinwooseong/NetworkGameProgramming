@@ -237,8 +237,8 @@ void Render::DrawPause(HDC dc, int width, int height)
 
 void Render::DrawStartScreen(HDC dc, int width, int height,
     CImage& background, CImage& title, CImage& startButton,
-    CImage& emptySlot, CImage& readySlot, unsigned int playerSlots,
-    unsigned int hostNumber)
+    CImage& emptySlot, CImage& readySlot, const bool (&occupied)[2],
+    int myPlayerNumber, int hostPlayerNumber)
 {
     const int centerX = width / 2;
     const int centerY = height / 2;
@@ -261,7 +261,9 @@ void Render::DrawStartScreen(HDC dc, int width, int height,
             startButton.GetWidth(), startButton.GetHeight());
     }
 
-    const wchar_t message[] = L"Click 'START' TO GAME START";
+    const wchar_t* message = myPlayerNumber == 0 ? L"Connecting to server..." :
+        (!occupied[0] || !occupied[1]) ? L"Waiting for another player" :
+        myPlayerNumber == hostPlayerNumber ? L"Click START to begin" : L"Waiting for host to start";
     const int oldMode = SetBkMode(dc, TRANSPARENT);
     const COLORREF oldColor = SetTextColor(dc, RGB(255, 255, 255));
 
@@ -278,24 +280,22 @@ void Render::DrawStartScreen(HDC dc, int width, int height,
     for (int i = 0; i < 2; ++i)
     {
         const int slotX = slotCenters[i];
-       
-        const bool hasPlayer = (playerSlots & (1u << i)) != 0; // 현재 확인 중인 i번 자리에 플레이어 있는지 확인
-        CImage& slotImage = hasPlayer ? readySlot : emptySlot;
 
-        if (!slotImage.IsNull())
+        CImage& image = occupied[i] ? readySlot : emptySlot;
+        if (!image.IsNull())
         {
-            DrawSprite(dc, slotImage, slotX - slotSize / 2, slotTop,
-                slotSize, slotSize,
-                slotImage.GetWidth(), slotImage.GetHeight());
+            DrawSprite(dc, image, slotX - slotSize / 2, slotTop,
+                slotSize, slotSize, image.GetWidth(), image.GetHeight());
         }
 
-        if (hasPlayer && hostNumber == static_cast<unsigned int>(i + 1))
-        {
-            RECT leaderLabel = {slotX - 64, slotTop + slotSize + 4,
-                slotX + 64, slotTop + slotSize + 28};
-            DrawTextW(dc, L"Leader", -1, &leaderLabel,
-                DT_CENTER | DT_SINGLELINE);
-        }
+        RECT label = {slotX - 64, slotTop + slotSize + 4,
+            slotX + 64, slotTop + slotSize + 24};
+        wchar_t slotText[64]{};
+        swprintf_s(slotText, L"%s%s%s", slotLabels[i],
+            myPlayerNumber == i + 1 ? L" (YOU)" : L"",
+            hostPlayerNumber == i + 1 ? L" HOST" : L"");
+        DrawTextW(dc, slotText, -1, &label, DT_CENTER | DT_SINGLELINE);
+
     }
 
     SetTextColor(dc, oldColor);

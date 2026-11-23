@@ -1,152 +1,228 @@
-﻿// 11.11 생성
-#include "ClientNetwork.h"
+﻿#include "ClientNetwork.h"
+#include "../Shared/Protocol.h"
 #include <ws2tcpip.h>
-
-#include <array>
 #include <cstdio>
+#include <chrono>
 
 #pragma comment(lib, "Ws2_32.lib")
-char* SERVERIP = (char*)"127.0.0.1";
 
 ClientNetwork::~ClientNetwork()
 {
     Disconnect();
 }
 
-bool ClientNetwork::Connect(const char* ipv4, unsigned short port)
+bool ClientNetwork::Connect(const char* ipv4, unsigned short port, HWND window)
 {
     Disconnect();
-
-    int retval;
-
-    // 윈속 초기화
-    WSADATA wsa;
+    WSADATA wsa{};
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
         return false;
     winsockStarted = true;
 
-    // 소켓 생성
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+    if (!ipv4 || InetPtonA(AF_INET, ipv4, &address.sin_addr) != 1)
+    {
+        Disconnect();
+        return false;
+    }
     sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == INVALID_SOCKET) exit(1);
-    
-    // connect()
-    struct sockaddr_in serveraddr;
-    memset(&serveraddr, 0, sizeof(serveraddr));
-    serveraddr.sin_family = AF_INET;
-    inet_pton(AF_INET, ipv4, &serveraddr.sin_addr);
-    serveraddr.sin_port = htons(port);
-    retval = connect(sock, (struct sockaddr*)&serveraddr, sizeof(serveraddr));
-    if (retval == SOCKET_ERROR) exit(1);
-
-    // 연결 소켓의 수신 스레드 시작
-    receiveThread = std::jthread(
-        [this, connectedSocket = sock](std::stop_token stop)
-        {
-            ReceiveLoop(stop, connectedSocket); // 대기방 패킷 수신
-            
-
-        });
-
+    if (sock == INVALID_SOCKET ||
+        connect(sock, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR)
+    {
+        Disconnect();
+        return false;
+    }
+    const DWORD timeout = 1000; // 시작 요청 송신 제한시간
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+    const BOOL noDelay = TRUE; // 짧은 좌표 패킷의 지연 없는 송신
+    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&noDelay), sizeof(noDelay));
+    window_ = window;
+    receiveThread = std::jthread([this, connectedSocket = sock](std::stop_token stop)
+    {
+        ReceiveLoop(stop, connectedSocket);
+    });
+    sendThread = std::jthread([this, connectedSocket = sock](std::stop_token stop)
+    {
+        SendLoop(stop, connectedSocket);
+    });
     return true;
+}
+
+bool ClientNetwork::RequestStart()
+{
+    if (sock == INVALID_SOCKET)
+        return false;
+    {
+        std::lock_guard lock(stateMutex);
+        startRequested = true;
+    }
+    sendReady.notify_one();
+    return true;
+}
+
+void ClientNetwork::SetLocalPosition(float x, float y)
+{
+    std::lock_guard lock(stateMutex);
+    localX = x;
+    localY = y;
+    positionEnabled = true;
+}
+
+void ClientNetwork::StopPositionUpdates()
+{
+    std::lock_guard lock(stateMutex);
+    positionEnabled = false;
+}
+
+bool ClientNetwork::GetRemotePosition(Protocol::PlayerPosition& position)
+{
+    std::lock_guard lock(stateMutex);
+    position = remotePosition;
+    return hasRemotePosition;
+}
+
+void ClientNetwork::SendLoop(std::stop_token stop, SOCKET connectedSocket)
+{
+    using Clock = std::chrono::steady_clock;
+    const auto interval = std::chrono::duration_cast<Clock::duration>(
+        std::chrono::duration<double>(1.0 / 60.0)); // 초당 60회 송신 간격
+    auto nextSend = Clock::now();
+    while (!stop.stop_requested())
+    {
+        Protocol::Packet packet;
+        {
+            std::unique_lock lock(stateMutex);
+            sendReady.wait_until(lock, stop, nextSend, [this] { return startRequested; });
+            if (stop.stop_requested())
+                break;
+            if (startRequested)
+            {
+                packet = Protocol::SerializePacket(Protocol::StartRequestPacket{Protocol::StartRequestType});
+                startRequested = false;
+            }
+            else
+            {
+                if (positionEnabled)
+                    packet = Protocol::SerializePacket(Protocol::MakePositionPacket(0, localX, localY));
+                nextSend += interval;
+                if (nextSend <= Clock::now())
+                    nextSend = Clock::now() + interval; // 지연 후 몰아서 전송하는 동작 방지
+            }
+        }
+        std::size_t sent = 0;
+        while (sent < packet.size() && !stop.stop_requested())
+        {
+            const int count = send(connectedSocket,
+                reinterpret_cast<const char*>(packet.data() + sent),
+                static_cast<int>(packet.size() - sent), 0);
+            if (count <= 0)
+            {
+                shutdown(connectedSocket, SD_BOTH);
+                return;
+            }
+            sent += static_cast<std::size_t>(count);
+        }
+    }
 }
 
 void ClientNetwork::Disconnect()
 {
     receiveThread.request_stop();
-
+    sendThread.request_stop();
     if (sock != INVALID_SOCKET)
-        shutdown(sock, SD_BOTH);
-
+        shutdown(sock, SD_BOTH); // 대기 중인 송수신의 반환 유도
+    if (sendThread.joinable())
+        sendThread.join();
     if (receiveThread.joinable())
         receiveThread.join();
-
+    {
+        std::lock_guard lock(stateMutex);
+        startRequested = false;
+        positionEnabled = false;
+        hasRemotePosition = false;
+    }
     if (sock != INVALID_SOCKET)
     {
         closesocket(sock);
         sock = INVALID_SOCKET;
     }
-
-    playerSlots.store(0);
-    hostNumber.store(0);
-
     if (winsockStarted)
     {
         WSACleanup();
         winsockStarted = false;
     }
-
+    window_ = nullptr;
 }
 
 void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
 {
-    constexpr unsigned char LobbyStateType = 1; // 대기방 메시지 타입
-    constexpr int PacketSize = 5;               // 대기방 패킷 길이
-    std::array<unsigned char, PacketSize> packet{}; // 패킷 수신 버퍼
-    int filled = 0;                                 // 현재까지 수신한 바이트 수
-
-
-
-
+    Protocol::PositionPacket packet{}; // 현재 서버 메시지의 최대 길이
+    int filled = 0;
+    int expected = 1; // 첫 바이트의 타입 선행 수신
     while (!stop.stop_requested())
     {
-        const int received = recv(
-            connectedSocket,
-            reinterpret_cast<char*>(packet.data() + filled),
-            PacketSize - filled,
-            0); // 패킷의 남은 바이트 수신
-
+        const int received = recv(connectedSocket,
+            reinterpret_cast<char*>(packet.data() + filled), expected - filled, 0);
         if (stop.stop_requested())
-            break; // 클라이언트 종료 요청 확인
-
-        if (received == 0)
-        {
-            OutputDebugStringA(filled == 0
-                ? "[Lobby] Server closed the connection\n"
-                : "[Lobby] Connection closed mid-packet\n"); // 서버 연결 종료 기록
+            return;
+        if (received <= 0)
             break;
-        }
+        filled += received;
+        if (filled < expected)
+            continue;
 
-        if (received == SOCKET_ERROR)
+        if (filled == 1)
         {
-            const int error = WSAGetLastError(); // 수신 오류 번호 조회
-            char message[80]{};
-            std::snprintf(message, sizeof(message),
-                "[Lobby] recv failed: %d\n", error);
-            OutputDebugStringA(message); // 수신 오류 기록
-            break;
+            switch (packet[0])
+            {
+            case Protocol::LobbyStateType: expected = Protocol::LobbyPacketSize; break;
+            case Protocol::GameStartedType: expected = 1; break;
+            case Protocol::PlayerPositionType: expected = Protocol::PositionPacketSize; break;
+            default:
+                shutdown(connectedSocket, SD_BOTH);
+                PostMessageW(window_, ConnectionLostMessage, 0, 0);
+                return;
+            }
+            if (filled < expected)
+                continue;
         }
-
-        filled += received; // 수신 위치 갱신
-        if (filled < PacketSize)
-            continue; // 남은 바이트의 추가 수신
-
-        if (packet[0] != LobbyStateType)
+        if (packet[Protocol::Type] == Protocol::LobbyStateType)
         {
-            OutputDebugStringA("[Lobby] Unexpected packet type\n"); // 패킷 타입 불일치 기록
-            break;
+            expected = Protocol::LobbyPacketSize;
+            if (filled < expected)
+                continue;
+            char message[128]{};
+            std::snprintf(message, sizeof(message), "[Lobby] My=%d Host=%d P1=%d P2=%d\n",
+                packet[Protocol::MyPlayerNumber], packet[Protocol::HostNumber],
+                packet[Protocol::Player1Occupied], packet[Protocol::Player2Occupied]);
+            OutputDebugStringA(message);
+            const LPARAM state = packet[Protocol::HostNumber] |
+                (packet[Protocol::Player1Occupied] << 8) | (packet[Protocol::Player2Occupied] << 16);
+            PostMessageW(window_, LobbyChangedMessage, packet[Protocol::MyPlayerNumber], state);
         }
-
-        char message[128]{};
-        std::snprintf(message, sizeof(message),
-            "[Lobby] My=%d Host=%d P1=%d P2=%d\n",
-            static_cast<int>(packet[1]),
-            static_cast<int>(packet[2]),
-            static_cast<int>(packet[3]),
-            static_cast<int>(packet[4]));
-        OutputDebugStringA(message); // 완성된 대기방 상태 출력
-
-        const unsigned int slots =
-            (packet[3] != 0 ? 1u : 0u) |
-            (packet[4] != 0 ? 2u : 0u);
-
-        playerSlots.store(slots);
-        hostNumber.store(packet[2]);
-
-        filled = 0; // 다음 패킷의 수신 위치 초기화
+        else if (packet[Protocol::Type] == Protocol::GameStartedType)
+        {
+            OutputDebugStringA("[Game] Server approved start\n");
+            PostMessageW(window_, GameStartedMessage, 0, 0);
+        }
+        else if (packet[0] == Protocol::PlayerPositionType)
+        {
+            Protocol::PlayerPosition position;
+            if (!Protocol::ReadPosition(packet.data(), position) ||
+                position.playerNumber < 1 || position.playerNumber > 2)
+                break;
+            {
+                std::lock_guard lock(stateMutex);
+                remotePosition = position;
+                hasRemotePosition = true;
+            }
+            PostMessageW(window_, PositionChangedMessage, 0, 0);
+        }
+        filled = 0;
+        expected = 1;
     }
-
-
-    // 서버 연결이 끊기면 두 자리 모두 비운다.
-    playerSlots.store(0);
-    hostNumber.store(0);
+    shutdown(connectedSocket, SD_BOTH);
+    PostMessageW(window_, ConnectionLostMessage, 0, 0);
 }

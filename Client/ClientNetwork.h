@@ -3,45 +3,46 @@
 #include <stop_token>
 #include <thread>
 #include <winsock2.h>
-#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include "../Shared/Protocol.h"
 #pragma comment(lib, "ws2_32")
 
 class ClientNetwork
 {
 public:
+    static constexpr UINT LobbyChangedMessage = WM_APP + 1; // 로비 갱신 알림
+    static constexpr UINT GameStartedMessage = WM_APP + 2; // 게임 시작 알림
+    static constexpr UINT ConnectionLostMessage = WM_APP + 3; // 연결 종료 알림
+    static constexpr UINT PositionChangedMessage = WM_APP + 4; // 상대 좌표 갱신 알림
     ClientNetwork() = default;
     ~ClientNetwork();
 
     ClientNetwork(const ClientNetwork&) = delete;
     ClientNetwork& operator=(const ClientNetwork&) = delete;
 
-    unsigned int GetPlayerSlots() const
-    {
-        return playerSlots.load();
-    }
-
-
-
-    unsigned int GetHostNumber() const
-    {
-        return hostNumber.load();
-    }
-
-    bool Connect(const char* ipv4, unsigned short port);
+    bool Connect(const char* ipv4, unsigned short port, HWND window = nullptr);
+    bool RequestStart();
+    void SetLocalPosition(float x, float y);
+    void StopPositionUpdates();
+    bool GetRemotePosition(Protocol::PlayerPosition& position);
     void Disconnect();
 
 private:
+    HWND window_ = nullptr; // 수신 알림 대상 창
     SOCKET sock = INVALID_SOCKET;    //소켓 번호
     bool winsockStarted = false;    //WSAStartup 성공 여부
 
     void ReceiveLoop(std::stop_token stop, SOCKET connectedSocket); // 대기방 패킷 수신 함수
-
-    // 0 = 둘 다 비어 있음
-    // 1 = 1번 접속, 2 = 2번 접속, 3 = 둘 다 접속
-    std::atomic<unsigned int> playerSlots{ 0 };
-    // 0 = no host, 1 = PLAYER 1, 2 = PLAYER 2.
-    std::atomic<unsigned int> hostNumber{0};
-
-
     std::jthread receiveThread;                                    // 클라이언트 수신 스레드
+    void SendLoop(std::stop_token stop, SOCKET connectedSocket);
+    std::jthread sendThread;
+    std::mutex stateMutex;
+    std::condition_variable_any sendReady;
+    bool startRequested = false;
+    bool positionEnabled = false;
+    float localX = 0.0f;
+    float localY = 0.0f;
+    Protocol::PlayerPosition remotePosition{};
+    bool hasRemotePosition = false;
 };

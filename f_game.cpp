@@ -98,8 +98,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	UpdateWindow(hWnd);
 
 	// 11.11
-
-	if (network.Connect("127.0.0.1", 9000))
+	ClientNetwork network;
+	SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&network));
+	if (network.Connect("127.0.0.1", 9000, hWnd))
 	{
 		OutputDebugStringW(L"[TCP 클라이언트] TCP 연결 성공\n");
 	}
@@ -360,6 +361,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 	static Input input;
 	static Render render;
 
+    static int myPlayerNumber = 0; // 서버 배정 플레이어 번호
+    static int hostPlayerNumber = 0; // 현재 방장 번호
+    static bool remoteVisible = false; // 상대 기체 좌표 수신 여부
+    static bool occupied[2]{}; // 로비 슬롯 접속 여부
 	static bool bGameStart; // 게임시작을 위한 변수 => START BOX 누를시 시작
 	static RECT startBox; // START BOX 
 	static bool bGamePause; // 게임 일시정지
@@ -548,9 +553,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		if (bGameStart == false && bGameOver == false) // 게임 시작 전 화면
 		{
 			render.DrawStartScreen(mdc, client.right, client.bottom,
-				GameStartBGImage, TextImage, GameStartImage,
-				EmptyPlayerSlotImage, ReadyPlayerSlotImage,
-				network.GetPlayerSlots(), network.GetHostNumber());
+
+				GameStartBGImage, TextImage, GameStartImage, EmptyPlayerSlotImage,
+                ReadyPlayerSlotImage, occupied, myPlayerNumber, hostPlayerNumber);
+
 		}
 		else if (bGameStart && bGameOver == false) // 게임 시작 후 화면
 		{
@@ -591,6 +597,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 			render.DrawPlayer(mdc, playerImage,
 				player.x, player.y, player.size, player.hp, showPlayerSprite);
+            if (remoteVisible)
+            {
+                const PlayerState& remote = gameState.players[1];
+                render.DrawSprite(mdc, playerImage, remote.x, remote.y,
+                    remote.size, remote.size, playerImageX, playerImageY);
+                wchar_t label[24]{};
+                swprintf_s(label, L"PLAYER %d", myPlayerNumber == 1 ? 2 : 1);
+                TextOutW(mdc, static_cast<int>(remote.x), static_cast<int>(remote.y) - 20,
+                    label, lstrlenW(label));
+            }
 
 			/////////////////////////////////////////////
 
@@ -763,24 +779,56 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		EndPaint(hWnd, &ps);
 		break;
 	}
+
+    case ClientNetwork::LobbyChangedMessage:
+        myPlayerNumber = static_cast<int>(wParam);
+        hostPlayerNumber = static_cast<int>(lParam & 0xff);
+        occupied[0] = ((lParam >> 8) & 0xff) != 0;
+        occupied[1] = ((lParam >> 16) & 0xff) != 0;
+        if (!occupied[0] || !occupied[1])
+            remoteVisible = false;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+
+	case ClientNetwork::ConnectionLostMessage:
+        remoteVisible = false;
+        myPlayerNumber = 0;
+        hostPlayerNumber = 0;
+        occupied[0] = occupied[1] = false;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+
+    case ClientNetwork::PositionChangedMessage:
+    {
+        auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+        Protocol::PlayerPosition position;
+        if (bGameStart && !bGameOver && occupied[0] && occupied[1] && network &&
+            network->GetRemotePosition(position) && position.playerNumber != myPlayerNumber)
+        {
+            gameState.players[1].x = position.x;
+            gameState.players[1].y = position.y;
+            remoteVisible = true;
+        }
+        break;
+    }
+
 	case WM_LBUTTONDOWN:
 	{
-		if (bGameStart || bGameOver)
+		if (bGameStart || bGameOver || myPlayerNumber == 0 ||
+			myPlayerNumber != hostPlayerNumber || !occupied[0] || !occupied[1])
 			break;
 
 		RECT windowRect{};
 		GetClientRect(hWnd, &windowRect);
 		const RECT viewport = GetGameViewport(windowRect, client);
 
-		const POINT click = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+		const POINT click{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 		if (!PtInRect(&viewport, click))
 			break;
 
 		const int width = viewport.right - viewport.left;
 		const int height = viewport.bottom - viewport.top;
-
-		// 확대된 창 좌표를 원래 게임 좌표로 변환합니다.
-		const POINT mouse = {
+		const POINT mouse{
 			static_cast<LONG>(
 				static_cast<long long>(click.x - viewport.left) * client.right / width),
 			static_cast<LONG>(
@@ -789,19 +837,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 		if (PtInRect(&startBox, mouse))
 		{
-			input.Reset();
-			bGameStart = true;
-
-			PlaySound(NULL, NULL, 0);
-			// 게임시작 시 배경음악 재생
-			PlaySound(Assets::background_bgm().c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
-
-			SetTimer(hWnd, 1, 17, NULL);   // 플레이어 이동
-			SetTimer(hWnd, 2, 17, NULL);   // 보스, 총알, 충돌 등
-			SetTimer(hWnd, 3, 100, NULL);  // 아이템 시간과 효과는 그대로
+			auto* network = reinterpret_cast<ClientNetwork*>(
+				GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+			if (network && !network->RequestStart())
+				OutputDebugStringW(L"[Network] Start request failed\n");
 		}
 		break;
 	}
+
+    case ClientNetwork::GameStartedMessage:
+        if (bGameStart || bGameOver)
+            break;
+        input.Reset();
+        ResetGame(gameState, {client.left, client.top, client.right, client.bottom});
+        bGameStart = true;
+        bGamePause = false;
+        remoteVisible = false;
+        gameState.players[0].x += myPlayerNumber == 1 ? -70.0f : 70.0f;
+        if (auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA)))
+            network->SetLocalPosition(gameState.players[0].x, gameState.players[0].y);
+        PlaySound(Assets::background_bgm().c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_LOOP);
+        SetTimer(hWnd, 1, 17, nullptr);
+        SetTimer(hWnd, 2, 17, nullptr);
+        SetTimer(hWnd, 3, 100, nullptr);
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+
 	case WM_KEYDOWN:
 	{
 		if (bGameOver) // 게임 종료일때
@@ -905,6 +966,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		case 1:
 			if (UpdatePlayer(gameState, bounds, input.ConsumeCommand()))
 				mciSendString(L"play shotSound from 0", NULL, 0, NULL);
+            if (auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA)))
+                network->SetLocalPosition(gameState.players[0].x, gameState.players[0].y);
 			break;
 		case 2:
 		{
@@ -917,6 +980,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 				bGameClear = step.outcome == RoundOutcome::Won;
 				input.Reset();
 				bGameOver = true;
+                if (auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA)))
+                    network->StopPositionUpdates();
 				KillTimer(hWnd, 1);
 				KillTimer(hWnd, 2);
 				KillTimer(hWnd, 3);
