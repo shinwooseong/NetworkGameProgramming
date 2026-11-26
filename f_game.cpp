@@ -5,7 +5,6 @@
 #include <time.h>
 #include <stdbool.h>
 #include <windowsx.h>	// AlphaBlend() 함수 이용
-
 #include <mmsystem.h>
 
 #include "Client/Input.h"
@@ -355,9 +354,12 @@ void PlayGameEvent(GameEvent event)
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 {
 	PAINTSTRUCT ps;
-	HDC hdc, mdc;
+	HDC hdc;
 
-	static HBITMAP hBitmap;
+	static HDC mdc = nullptr;
+	static HBITMAP hBitmap = nullptr;
+	static HGDIOBJ oldBitmap = nullptr;
+
 
 	static Input input;
 	static Render render;
@@ -531,9 +533,63 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		const auto& itemEffects = gameState.itemEffects;
 
 		hdc = BeginPaint(hWnd, &ps);
-		mdc = CreateCompatibleDC(hdc); // 더블버퍼링을 위한 메모리디시 생성
-		hBitmap = CreateCompatibleBitmap(hdc, client.right, client.bottom); // 더블버퍼링을 위한 비트맵 생성
-		HBITMAP oldBitmap = (HBITMAP)SelectObject(mdc, (HBITMAP)hBitmap);
+
+		if (IsIconic(hWnd) || client.right <= 0 || client.bottom <= 0)
+		{
+			EndPaint(hWnd, &ps);
+			return 0;
+		}
+
+		// 화면용 공간은 처음 한 번만 생성합니다.
+		if (mdc == nullptr)
+		{
+			mdc = CreateCompatibleDC(hdc);
+
+			if (mdc == nullptr)
+			{
+				EndPaint(hWnd, &ps);
+				return 0;
+			}
+
+			hBitmap = CreateCompatibleBitmap(
+				hdc, client.right, client.bottom);
+
+			if (hBitmap == nullptr)
+			{
+				DeleteDC(mdc);
+				mdc = nullptr;
+
+				EndPaint(hWnd, &ps);
+				return 0;
+			}
+
+			oldBitmap = SelectObject(mdc, hBitmap);
+
+			if (oldBitmap == nullptr || oldBitmap == HGDI_ERROR)
+			{
+				DeleteObject(hBitmap);
+				DeleteDC(mdc);
+
+				hBitmap = nullptr;
+				mdc = nullptr;
+				oldBitmap = nullptr;
+
+				EndPaint(hWnd, &ps);
+				return 0;
+			}
+		}
+
+		// 글자색, 브러시 등의 설정이 다음 프레임에 남지 않게 저장합니다.
+		const int savedBufferState = SaveDC(mdc);
+
+		if (savedBufferState == 0)
+		{
+			EndPaint(hWnd, &ps);
+			return 0;
+		}
+
+		// 실제 창이 아니라 화면용 메모리만 초기화합니다.
+		FillRect(mdc, &client, (HBRUSH)GetStockObject(BLACK_BRUSH));
 
 
 		// 플레이어와 보스 이동범위 제한 표시 ( 경계 확인할려고 임의로 그려뒀습니다 )
@@ -775,26 +831,41 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 		RECT windowRect{};
 		GetClientRect(hWnd, &windowRect);
+
 		const RECT viewport = GetGameViewport(windowRect, client);
-
-		FillRect(hdc, &windowRect, (HBRUSH)GetStockObject(BLACK_BRUSH));
-
 		const int width = viewport.right - viewport.left;
 		const int height = viewport.bottom - viewport.top;
 
 		if (width > 0 && height > 0)
 		{
+			// 게임 화면 바깥의 여백만 검게 칠합니다.
+			const int savedWindowState = SaveDC(hdc);
+
+			if (savedWindowState != 0)
+			{
+				ExcludeClipRect(hdc,
+					viewport.left, viewport.top,
+					viewport.right, viewport.bottom);
+
+				FillRect(hdc, &windowRect,
+					(HBRUSH)GetStockObject(BLACK_BRUSH));
+
+				RestoreDC(hdc, savedWindowState);
+			}
+
+			// 메모리에 완성한 화면을 실제 창에 복사합니다.
 			SetStretchBltMode(hdc, COLORONCOLOR);
-			StretchBlt(hdc, viewport.left, viewport.top, width, height,
-				mdc, 0, 0, client.right, client.bottom, SRCCOPY);
+
+			StretchBlt(hdc,
+				viewport.left, viewport.top, width, height,
+				mdc, 0, 0, client.right, client.bottom,
+				SRCCOPY);
 		}
 
 
-		SelectObject(mdc, oldBitmap);
-		DeleteObject(hBitmap);
-		DeleteDC(mdc);
+		RestoreDC(mdc, savedBufferState);
 		EndPaint(hWnd, &ps);
-		break;
+		return 0;
 	}
 
     case ClientNetwork::LobbyChangedMessage:
@@ -1074,6 +1145,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		return 0;
 
 	case WM_DESTROY:
+		if (mdc != nullptr)
+		{
+			if (oldBitmap != nullptr)
+				SelectObject(mdc, oldBitmap);
+
+			if (hBitmap != nullptr)
+				DeleteObject(hBitmap);
+
+			DeleteDC(mdc);
+
+			mdc = nullptr;
+			hBitmap = nullptr;
+			oldBitmap = nullptr;
+		}
+
+
 		PlaySound(NULL, 0, 0);
 		mciSendString(L"close shotSound", NULL, 0, NULL);
 		mciSendString(L"close hurtSound", NULL, 0, NULL);
