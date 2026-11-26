@@ -15,6 +15,9 @@ public:
     static constexpr UINT GameStartedMessage = WM_APP + 2; // 게임 시작 알림
     static constexpr UINT ConnectionLostMessage = WM_APP + 3; // 연결 종료 알림
     static constexpr UINT PositionChangedMessage = WM_APP + 4; // 상대 좌표 갱신 알림
+    static constexpr UINT ScoreChangedMessage = WM_APP + 5; // 점수 변경
+
+
     ClientNetwork() = default;
     ~ClientNetwork();
 
@@ -25,6 +28,7 @@ public:
     bool RequestStart();
     void SetLocalPosition(float x, float y);
     void StopPositionUpdates();
+    void SetLocalScore(int score);  // 점수 관련
     bool GetRemotePosition(Protocol::PlayerPosition& position);
     void Disconnect();
 
@@ -45,4 +49,9 @@ private:
     float localY = 0.0f;
     Protocol::PlayerPosition remotePosition{};
     bool hasRemotePosition = false;
+
+    int localScore = -1;        // 점수 0점인 경우 보내기 위해, -1 로 설정
+    bool scorePending = false;
+
+
 };

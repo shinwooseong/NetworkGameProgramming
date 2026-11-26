@@ -147,7 +147,8 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
                 {
                     const std::uint8_t type = input[consumed];
                     const std::size_t length = type == Protocol::StartRequestType ? 1 :
-                        type == Protocol::PlayerPositionType ? Protocol::PositionPacketSize : 0;
+                        type == Protocol::PlayerPositionType ? Protocol::PositionPacketSize :
+                        type == Protocol::PlayerScoreType ? Protocol::ScorePacketSize : 0;
                     if (length == 0)
                     {
                         invalidPacket = true;
@@ -158,6 +159,19 @@ void ReceiveLoop(std::stop_token stop, SOCKET listenSocket, GameCommandQueue& qu
                         break;
                     if (type == Protocol::StartRequestType)
                         queue.Push({CommandType::StartRequested, slot, session});
+                    else if (type == Protocol::PlayerScoreType)
+                    {
+                        Protocol::PlayerScore score;
+                        if (!Protocol::ReadScore(input.data() + consumed, score))
+                        {
+                            invalidPacket = true;
+                            consumed = input.size();
+                            break;
+                        }
+                        GameCommand command{CommandType::ScoreUpdated, slot, session};
+                        command.score = score.score;
+                        queue.Push(command);
+                    }
                     else
                     {
                         Protocol::PlayerPosition position;
@@ -279,6 +293,19 @@ void GameLoop(std::stop_token stop, GameCommandQueue& gameQueue, SendCommandQueu
                 sendQueue.Push({other, Protocol::SerializePacket(Protocol::MakePositionPacket(
                     static_cast<std::uint8_t>(playerNumber), command.x, command.y))});
             continue;
+
+        case CommandType::ScoreUpdated:
+        {
+            if (!gameStarted || sessions[slot] != command.session)
+                continue;
+            if (const auto& other = sessions[1 - slot])
+            {
+                sendQueue.Push({other, Protocol::SerializePacket(
+                    Protocol::MakeScorePacket(
+                        static_cast<std::uint8_t>(playerNumber), command.score))});
+            }
+            continue;
+        }
 
         case CommandType::StartRequested:
             if (gameStarted || sessions[slot] != command.session ||

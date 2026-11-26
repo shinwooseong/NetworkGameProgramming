@@ -78,4 +78,60 @@ namespace Protocol
     {
         return Packet(packet.begin(), packet.end()); // 필드 순서와 길이를 보존한 바이트 복사
     }
+
+
+
+    constexpr std::uint8_t PlayerScoreType = 5;
+
+    // 타입 1바이트 + 플레이어 번호 1바이트 + 점수 4바이트
+    constexpr int ScorePacketSize = 6;
+    using ScorePacket = std::array<std::uint8_t, ScorePacketSize>;
+
+    struct PlayerScore
+    {
+        std::uint8_t playerNumber = 0;
+        int score = 0;
+    };
+
+    // 나눠 담기
+    inline ScorePacket MakeScorePacket(std::uint8_t playerNumber, int score)
+    {
+        ScorePacket packet{};
+        packet[0] = PlayerScoreType;
+        packet[1] = playerNumber;
+
+        // 점수를 정확히 32비트인 부호 없는 정수로 바꿔서, 비트연산.
+        // 점수는 음수를 보내지 않음
+        const auto value = static_cast<std::uint32_t>(score);
+        for (int i = 0; i < 4; ++i) {
+            packet[2 + i] = static_cast<std::uint8_t>(value >> (24 - i * 8));
+        }
+
+
+        return packet;
+    }
+
+    // 다시 합치기
+    inline bool ReadScore(const std::uint8_t* packet, PlayerScore& score)
+    {
+        std::uint32_t value = 0;
+
+        for (int i = 0; i < 4; ++i) {
+            value = (value << 8) | packet[2 + i];
+        }
+
+        // 복원한 점수가 int에 저장 가능한 범위인지 확인
+        if (value > static_cast<std::uint32_t>(
+            (std::numeric_limits<int>::max)()))
+        {
+            return false;
+        }
+
+        score.playerNumber = packet[1];
+        score.score = static_cast<int>(value);
+        return true;
+    }
+
+
+
 }

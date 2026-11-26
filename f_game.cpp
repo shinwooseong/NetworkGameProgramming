@@ -5,7 +5,8 @@
 #include <time.h>
 #include <stdbool.h>
 #include <windowsx.h>	// AlphaBlend() 함수 이용
-#include <mmsystem.h>	
+
+#include <mmsystem.h>
 
 #include "Client/Input.h"
 #include "Client/Render.h"
@@ -67,7 +68,7 @@ void ReportFps(bool playing)
     tracking = playing;
 }
 
-static ClientNetwork network;
+
 HINSTANCE g_hInst;
 LPCTSTR lpszClass = L"Final Project";
 LPCTSTR lpszWindowName = L"Final Project";
@@ -366,7 +367,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
     static bool remoteVisible = false; // 상대 기체 좌표 수신 여부
     static bool occupied[2]{}; // 로비 슬롯 접속 여부
 	static bool bGameStart; // 게임시작을 위한 변수 => START BOX 누를시 시작
-	static RECT startBox; // START BOX 
+	static RECT startBox; // START BOX
 	static bool bGamePause; // 게임 일시정지
 	static bool bGameOver; // 게임종료
 	static bool bGameClear; // 보스 쓰러뜨리며 게임종료
@@ -426,10 +427,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		// 배경 이미지 정보 가져오기 /////////////////////////////////////////////////
 		back[0].Load(Assets::background_1().c_str());
 		back[1].Load(Assets::background_2().c_str());
-		
+
 		///////////////////////////////////////////////////////////////////////////////
 
-		// 플레이어 이미지 정보 가져오기 
+		// 플레이어 이미지 정보 가져오기
 		playerImage.Load(Assets::playerImage().c_str());
 		playerImageX = playerImage.GetWidth();
 		playerImageY = playerImage.GetHeight();
@@ -545,8 +546,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			render.DrawResultScreen(mdc, client.right, client.bottom,
 				GameEndBGImage, resultImage, gameState.playTime, player.score);
 
-			render.DrawScores(mdc,
-				gameState.players[0].score, gameState.players[1].score);
 		}
 
 
@@ -754,7 +753,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 		}
 
+
+		// 플레이 중 / 결과 화면에 점수 표기
+		if ((bGameStart || bGameOver) &&
+			(myPlayerNumber == 1 || myPlayerNumber == 2))
+		{
+			const int myScore = gameState.players[0].score;
+			const int otherScore = gameState.players[1].score;
+
+			const int player1Score =
+				myPlayerNumber == 1 ? myScore : otherScore;
+
+			const int player2Score =
+				myPlayerNumber == 2 ? myScore : otherScore;
+
+			render.DrawScores(mdc, player1Score, player2Score);
+		}
+
 		ReportFps(bGameStart && !bGameOver && !bGamePause);
+
 
 		RECT windowRect{};
 		GetClientRect(hWnd, &windowRect);
@@ -797,6 +814,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
         occupied[0] = occupied[1] = false;
         InvalidateRect(hWnd, nullptr, FALSE);
         break;
+
+    case ClientNetwork::ScoreChangedMessage:
+    {
+        const int playerNumber = static_cast<int>(wParam);
+        if ((bGameStart || bGameOver) &&
+            myPlayerNumber >= 1 && myPlayerNumber <= 2 &&
+            playerNumber >= 1 && playerNumber <= 2 &&
+            occupied[playerNumber - 1] && playerNumber != myPlayerNumber &&
+            lParam >= 0 && lParam <= (std::numeric_limits<int>::max)())
+        {
+            gameState.players[1].score = static_cast<int>(lParam);
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        break;
+    }
 
     case ClientNetwork::PositionChangedMessage:
     {
@@ -855,7 +887,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
         remoteVisible = false;
         gameState.players[0].x += myPlayerNumber == 1 ? -70.0f : 70.0f;
         if (auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA)))
+        {
             network->SetLocalPosition(gameState.players[0].x, gameState.players[0].y);
+            network->SetLocalScore(gameState.players[0].score);
+        }
         PlaySound(Assets::background_bgm().c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_LOOP);
         SetTimer(hWnd, 1, 17, nullptr);
         SetTimer(hWnd, 2, 17, nullptr);
@@ -882,6 +917,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 				SetTimer(hWnd, 3, 100, NULL);
 
 				ResetGame(gameState, {client.left, client.top, client.right, client.bottom});
+                if (auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA)))
+                    network->SetLocalScore(gameState.players[0].score);
 				back_scrollY = 0.0f;
 
 				background_changed = FALSE;
@@ -906,6 +943,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 			bGameClear = true;
 			bGameOver = true;
 			bGamePause = false;
+            if (auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA)))
+            {
+                network->SetLocalScore(gameState.players[0].score);
+                network->StopPositionUpdates();
+            }
 
 			KillTimer(hWnd, 1);
 			KillTimer(hWnd, 2);
@@ -972,6 +1014,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 		case 2:
 		{
 			const WorldStep step = UpdateWorld(gameState, bounds);
+            if (auto* network = reinterpret_cast<ClientNetwork*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA)))
+                network->SetLocalScore(gameState.players[0].score);
 			for (GameEvent event : step.events)
 				PlayGameEvent(event);
 

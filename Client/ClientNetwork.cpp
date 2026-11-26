@@ -76,6 +76,27 @@ void ClientNetwork::StopPositionUpdates()
     positionEnabled = false;
 }
 
+void ClientNetwork::SetLocalScore(int score)
+{
+    if (score < 0) {
+        return;
+    }
+
+    {
+        std::lock_guard lock(stateMutex);
+
+        if (localScore == score) {
+            return;
+        }
+
+        localScore = score;
+        scorePending = true;
+    }
+
+    sendReady.notify_one();
+
+}
+
 bool ClientNetwork::GetRemotePosition(Protocol::PlayerPosition& position)
 {
     std::lock_guard lock(stateMutex);
@@ -94,13 +115,20 @@ void ClientNetwork::SendLoop(std::stop_token stop, SOCKET connectedSocket)
         Protocol::Packet packet;
         {
             std::unique_lock lock(stateMutex);
-            sendReady.wait_until(lock, stop, nextSend, [this] { return startRequested; });
+            sendReady.wait_until(lock, stop, nextSend, [this] { return startRequested || scorePending; });
             if (stop.stop_requested())
                 break;
             if (startRequested)
             {
                 packet = Protocol::SerializePacket(Protocol::StartRequestPacket{Protocol::StartRequestType});
                 startRequested = false;
+            }
+            else if (scorePending)
+            {
+                packet = Protocol::SerializePacket(
+                    Protocol::MakeScorePacket(0, localScore));
+
+                scorePending = false;
             }
             else
             {
@@ -142,6 +170,8 @@ void ClientNetwork::Disconnect()
         startRequested = false;
         positionEnabled = false;
         hasRemotePosition = false;
+        localScore = -1;
+        scorePending = false;
     }
     if (sock != INVALID_SOCKET)
     {
@@ -180,6 +210,7 @@ void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
             case Protocol::LobbyStateType: expected = Protocol::LobbyPacketSize; break;
             case Protocol::GameStartedType: expected = 1; break;
             case Protocol::PlayerPositionType: expected = Protocol::PositionPacketSize; break;
+            case Protocol::PlayerScoreType: expected = Protocol::ScorePacketSize; break;
             default:
                 shutdown(connectedSocket, SD_BOTH);
                 PostMessageW(window_, ConnectionLostMessage, 0, 0);
@@ -219,6 +250,17 @@ void ClientNetwork::ReceiveLoop(std::stop_token stop, SOCKET connectedSocket)
                 hasRemotePosition = true;
             }
             PostMessageW(window_, PositionChangedMessage, 0, 0);
+        }
+        else if (packet[0] == Protocol::PlayerScoreType)
+        {
+            Protocol::PlayerScore score;
+            if (!Protocol::ReadScore(packet.data(), score) ||
+                score.playerNumber < 1 || score.playerNumber > 2)
+                break;
+
+            PostMessageW(window_, ScoreChangedMessage,
+                static_cast<WPARAM>(score.playerNumber),
+                static_cast<LPARAM>(score.score));
         }
         filled = 0;
         expected = 1;
